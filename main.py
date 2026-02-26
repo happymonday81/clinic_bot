@@ -24,20 +24,17 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_IDS = [988615428]  # ⚠️ ЗАМЕНИТЕ НА СВОЙ TELEGRAM ID
 
-# ========== Файл-блокировка для предотвращения двойного запуска ==========
+# ========== Файл-блокировка ==========
 LOCK_FILE = os.path.join(tempfile.gettempdir(), f"bot_{BOT_TOKEN[-10:] if BOT_TOKEN else 'unknown'}.lock")
 
 def is_already_running():
-    """Проверяет, не запущен ли уже бот"""
     if os.path.exists(LOCK_FILE):
         try:
             with open(LOCK_FILE, 'r') as f:
                 pid = f.read()
-            # Проверяем, существует ли процесс с таким PID
             os.kill(int(pid), 0)
             return True
         except (ProcessLookupError, ValueError, FileNotFoundError):
-            # Процесс не существует или файл повреждён
             try:
                 os.remove(LOCK_FILE)
             except:
@@ -46,19 +43,16 @@ def is_already_running():
     return False
 
 def create_lock():
-    """Создаёт файл-блокировку с текущим PID"""
     with open(LOCK_FILE, 'w') as f:
         f.write(str(os.getpid()))
 
 def remove_lock():
-    """Удаляет файл-блокировку"""
     try:
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
     except:
         pass
 
-# Проверяем при запуске
 if is_already_running():
     print("❌ Бот уже запущен! Завершите другой экземпляр и попробуйте снова.")
     print(f"   Если уверены, что бот не запущен, удалите файл: {LOCK_FILE}")
@@ -73,6 +67,8 @@ dp = Dispatcher(storage=storage)
 # ========== Хранилища ==========
 user_languages = {}
 user_data = {}
+user_phone_temp = {}  # Временное хранилище для ввода телефона
+user_phone_message_id = {}  # ID сообщения с клавиатурой для редактирования
 
 # ========== FSM States ==========
 class AppointmentStates(StatesGroup):
@@ -120,14 +116,43 @@ def time_inline_keyboard(lang='ru'):
          InlineKeyboardButton(text=get_text(lang, 'btn_back'), callback_data="back_to_doctor")]
     ])
 
-def phone_keyboard(lang='ru'):
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=get_text(lang, 'btn_send_contact'), request_contact=True)],
-            [KeyboardButton(text=get_text(lang, 'btn_back'))]
+def numeric_phone_inline_keyboard(lang='ru', current_number="+7"):
+    """Инлайн-клавиатура с цифрами для ввода телефона"""
+    
+    # Форматируем отображение текущего номера
+    display_number = current_number
+    
+    # Добавляем пробелы для увеличения кнопок
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=" 1 ", callback_data="phone:1"),
+            InlineKeyboardButton(text=" 2 ", callback_data="phone:2"),
+            InlineKeyboardButton(text=" 3 ", callback_data="phone:3")
         ],
-        resize_keyboard=True
-    )
+        [
+            InlineKeyboardButton(text=" 4 ", callback_data="phone:4"),
+            InlineKeyboardButton(text=" 5 ", callback_data="phone:5"),
+            InlineKeyboardButton(text=" 6 ", callback_data="phone:6")
+        ],
+        [
+            InlineKeyboardButton(text=" 7 ", callback_data="phone:7"),
+            InlineKeyboardButton(text=" 8 ", callback_data="phone:8"),
+            InlineKeyboardButton(text=" 9 ", callback_data="phone:9")
+        ],
+        [
+            InlineKeyboardButton(text=" + ", callback_data="phone:+"),
+            InlineKeyboardButton(text=" 0 ", callback_data="phone:0"),
+            InlineKeyboardButton(text=" ⌫ ", callback_data="phone:backspace")
+        ],
+        [
+            InlineKeyboardButton(text="✅ Готово ", callback_data="phone:done"),
+            InlineKeyboardButton(text="📱 Отправить контакт", callback_data="phone:contact")
+        ],
+        [
+            InlineKeyboardButton(text="       🔙 Назад          ", callback_data="back_to_doctor")
+        ]
+    ])
+    return keyboard, display_number
 
 def create_calendar(lang='ru', year=None, month=None):
     now = datetime.now()
@@ -139,14 +164,11 @@ def create_calendar(lang='ru', year=None, month=None):
     keyboard = []
     month_names = get_text(lang, 'months')
     
-    # Заголовок
     keyboard.append([InlineKeyboardButton(text=f"{month_names[month-1]} {year}", callback_data="ignore")])
     
-    # Дни недели
     week_days = get_text(lang, 'week_days')
     keyboard.append([InlineKeyboardButton(text=day, callback_data="ignore") for day in week_days])
 
-    # Календарь
     for week in calendar.monthcalendar(year, month):
         row = []
         for day in week:
@@ -165,7 +187,6 @@ def create_calendar(lang='ru', year=None, month=None):
                         row.append(InlineKeyboardButton(text=f"{day}", callback_data=f"calendar_date:{date_str}"))
         keyboard.append(row)
 
-    # Навигация
     prev_month = month - 1 if month > 1 else 12
     prev_year = year if month > 1 else year - 1
     next_month = month + 1 if month < 12 else 1
@@ -179,8 +200,35 @@ def create_calendar(lang='ru', year=None, month=None):
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+def format_phone_to_international(phone: str) -> str:
+    """Приводит номер к международному формату (+7)"""
+    # Удаляем все нецифровые символы
+    digits = re.sub(r'\D', '', phone)
+    
+    # Если номер начинается с 8 (российский формат), заменяем на +7
+    if digits.startswith('8') and len(digits) == 11:
+        digits = '7' + digits[1:]
+    
+    # Если номер уже с 7 и длина 11, добавляем +
+    if digits.startswith('7') and len(digits) == 11:
+        return f"+{digits}"
+    
+    # Если номер с 7 и длина 10 (без кода страны), добавляем +7
+    if len(digits) == 10:
+        return f"+7{digits}"
+    
+    # Если уже с +, оставляем как есть
+    if phone.startswith('+'):
+        return phone
+    
+    return phone
+
 def validate_phone(phone: str) -> bool:
-    cleaned = re.sub(r'[\s\-\(\)]', '', phone)
+    # Сначала приводим к международному формату
+    formatted = format_phone_to_international(phone)
+    # Удаляем все пробелы, дефисы, скобки для проверки
+    cleaned = re.sub(r'[\s\-\(\)]', '', formatted)
+    # Проверяем, что остались только цифры и плюс, и длина от 10 до 15 символов
     return bool(re.match(r'^\+?[\d]{10,15}$', cleaned))
 
 # ========== Основные хэндлеры ==========
@@ -220,7 +268,6 @@ async def export_excel(callback: types.CallbackQuery):
         await callback.answer("❌ Доступ запрещён")
         return
     
-    # Получаем путь к папке Загрузки
     downloads_path = str(Path.home() / "Downloads")
     
     appointments = get_all_appointments()
@@ -231,7 +278,6 @@ async def export_excel(callback: types.CallbackQuery):
     for apt in appointments:
         ws.append(list(apt))
     
-    # Формируем имя файла на русском
     now = datetime.now()
     date_str = now.strftime("%d.%m.%Y")
     time_str = now.strftime("%H.%M")
@@ -323,6 +369,10 @@ async def back_to_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     if user_id in user_data:
         del user_data[user_id]
+    if user_id in user_phone_temp:
+        del user_phone_temp[user_id]
+    if user_id in user_phone_message_id:
+        del user_phone_message_id[user_id]
     
     await callback.message.delete()
     await callback.message.answer(
@@ -337,6 +387,10 @@ async def back_to_doctor(callback: types.CallbackQuery, state: FSMContext):
     lang = user_languages.get(user_id, 'ru')
     
     await state.clear()
+    if user_id in user_phone_temp:
+        del user_phone_temp[user_id]
+    if user_id in user_phone_message_id:
+        del user_phone_message_id[user_id]
     
     if user_id in user_data and "doctor" in user_data[user_id]:
         doctor_ru = user_data[user_id]["doctor"]
@@ -443,25 +497,101 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=name)
     await state.set_state(AppointmentStates.waiting_for_phone)
     
-    await message.answer(
-        get_text(lang, 'enter_phone'),
-        reply_markup=phone_keyboard(lang)
+    # Инициализируем временное хранилище для телефона с +7
+    user_phone_temp[user_id] = "+7"
+    
+    # Создаем инлайн-клавиатуру для ввода телефона
+    keyboard, display_number = numeric_phone_inline_keyboard(lang, user_phone_temp[user_id])
+    
+    # Отправляем сообщение с клавиатурой
+    msg = await message.answer(
+        f"{get_text(lang, 'enter_phone')}\n"
+        f"📱 **Текущий номер:** `{display_number}`",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
     )
+    
+    # Сохраняем ID сообщения для последующего редактирования
+    user_phone_message_id[user_id] = msg.message_id
 
-@dp.message(AppointmentStates.waiting_for_phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
+# --- Callback handlers для ввода телефона ---
+@dp.callback_query(lambda c: c.data.startswith('phone:'))
+async def process_phone_input(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
     lang = user_languages.get(user_id, 'ru')
+    action = callback.data.split(':')[1]
     
-    phone = None
-    if message.contact:
-        phone = message.contact.phone_number
-    else:
-        phone = message.text.strip()
+    # Инициализация, если нужно
+    if user_id not in user_phone_temp:
+        user_phone_temp[user_id] = "+7"
     
-    if not validate_phone(phone):
-        await message.answer(get_text(lang, 'phone_error'))
+    current = user_phone_temp[user_id]
+    
+    # Обработка действий
+    if action == "contact":
+        # Отправляем запрос на отправку контакта через reply-клавиатуру
+        contact_keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📱 Отправить контакт", request_contact=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await callback.message.answer(
+            "Нажмите кнопку ниже, чтобы отправить контакт:",
+            reply_markup=contact_keyboard
+        )
+        await callback.answer()
         return
+    
+    elif action == "done":
+        if validate_phone(current):
+            # Завершаем запись
+            await complete_appointment(current, callback.message, state, lang, user_id, callback)
+        else:
+            # Показываем ошибку, редактируя сообщение
+            keyboard, display_number = numeric_phone_inline_keyboard(lang, current)
+            await callback.message.edit_text(
+                f"❌ {get_text(lang, 'phone_error')}\n\n"
+                f"{get_text(lang, 'enter_phone')}\n"
+                f"📱 **Текущий номер:** `{display_number}`",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+            await callback.answer()
+        return
+    
+    elif action == "backspace":
+        if len(current) > 2:
+            current = current[:-1]
+        else:
+            current = "+7"
+        user_phone_temp[user_id] = current
+    
+    elif action == "+":
+        if "+" not in current:
+            current += "+"
+            user_phone_temp[user_id] = current
+    
+    else:  # цифры 0-9
+        # Проверяем, что не превышаем лимит цифр
+        digits = re.sub(r'\D', '', current)
+        if len(digits) < 12:
+            current += action
+            user_phone_temp[user_id] = current
+    
+    # Обновляем сообщение с новым номером
+    keyboard, display_number = numeric_phone_inline_keyboard(lang, current)
+    await callback.message.edit_text(
+        f"{get_text(lang, 'enter_phone')}\n"
+        f"📱 **Текущий номер:** `{display_number}`",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+async def complete_appointment(phone: str, message: types.Message, state: FSMContext, lang: str, user_id: int, callback: types.CallbackQuery = None):
+    """Завершает запись и сохраняет в БД"""
+    # Приводим телефон к единому формату
+    phone = format_phone_to_international(phone)
     
     data = await state.get_data()
     appointment_data = data.get('appointment_data', {})
@@ -495,48 +625,53 @@ async def process_phone(message: types.Message, state: FSMContext):
         
         success_text = (
             get_text(lang, 'appointment_success') + "\n" +
-            f"📋 ID: #{appointment_id}\n" +
-            f"👤 {get_text(lang, 'patient')} {name}\n" +
-            f"📞 {get_text(lang, 'phone')} {phone}\n" +
-            f"👨‍⚕️ {get_text(lang, 'doctor')} {doctor_display}\n" +
-            f"📅 {get_text(lang, 'date')} {date_display}\n" +
-            f"🕐 {get_text(lang, 'time')} {time_str}\n\n" +
+            f"📋 **ID:** #{appointment_id}\n" +
+            f"👤 **{get_text(lang, 'patient')}** {name}\n" +
+            f"📞 **{get_text(lang, 'phone')}** `{phone}`\n" +
+            f"👨‍⚕️ **{get_text(lang, 'doctor')}** {doctor_display}\n" +
+            f"📅 **{get_text(lang, 'date')}** {date_display}\n" +
+            f"🕐 **{get_text(lang, 'time')}** {time_str}\n\n" +
             get_text(lang, 'thanks')
         )
         
+        # Возвращаем обычную клавиатуру
         await message.answer(
             success_text,
-            reply_markup=main_reply_keyboard(lang)
+            reply_markup=main_reply_keyboard(lang),
+            parse_mode="Markdown"
         )
+        
+        # Если был callback, отвечаем на него
+        if callback:
+            await callback.answer("✅ Запись создана!")
     else:
         await processing_msg.edit_text(get_text(lang, 'appointment_error'))
+        if callback:
+            await callback.answer("❌ Ошибка")
     
+    # Очищаем временные данные
     await state.clear()
     if user_id in user_data:
         del user_data[user_id]
+    if user_id in user_phone_temp:
+        del user_phone_temp[user_id]
+    if user_id in user_phone_message_id:
+        del user_phone_message_id[user_id]
 
-# --- Кнопка "Назад" ---
-@dp.message(lambda message: message.text == get_text('ru', 'btn_back') or 
-                            message.text == get_text('en', 'btn_back') or 
-                            message.text == get_text('zh', 'btn_back'))
-async def back_button(message: types.Message, state: FSMContext):
+# --- Обработчик контактов ---
+@dp.message(lambda message: message.contact is not None)
+async def handle_contact(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     lang = user_languages.get(user_id, 'ru')
     
-    await state.clear()
+    # Проверяем, что мы в состоянии ожидания телефона
+    current_state = await state.get_state()
+    if current_state != AppointmentStates.waiting_for_phone:
+        return
     
-    if user_id in user_data and "doctor" in user_data[user_id]:
-        doctor_ru = user_data[user_id]["doctor"]
-        user_data[user_id] = {"doctor": doctor_ru}
-        await message.answer(
-            get_text(lang, 'select_doctor'),
-            reply_markup=doctor_inline_keyboard(lang)
-        )
-    else:
-        await message.answer(
-            get_text(lang, 'welcome'),
-            reply_markup=main_reply_keyboard(lang)
-        )
+    phone = message.contact.phone_number
+    phone = format_phone_to_international(phone)
+    await complete_appointment(phone, message, state, lang, user_id)
 
 # --- Обработчик пустых кнопок ---
 @dp.callback_query(lambda c: c.data == "ignore")
@@ -562,34 +697,28 @@ async def handle_other_messages(message: types.Message):
 
 # ========== Запуск ==========
 async def main():
-    # Полная очистка перед запуском
     try:
-        # Удаляем вебхук (на всякий случай)
         await bot.delete_webhook(drop_pending_updates=True)
         print("✅ Вебхук очищен")
         
-        # Получаем информацию о вебхуке для проверки
         webhook_info = await bot.get_webhook_info()
         print(f"ℹ️ Информация о вебхуке: {webhook_info.url if webhook_info.url else 'не установлен'}")
         
     except Exception as e:
         print(f"⚠️ Ошибка при очистке вебхука: {e}")
     
-    print("🤖 Мультиязычный бот с админ-панелью запущен...")
+    print("🤖 Мультиязычный бот с инлайн-клавиатурой запущен...")
     print(f"✅ Admin IDs: {ADMIN_IDS}")
     print("✅ Поддерживаемые языки: Русский, English, 中文")
-    print("✅ Добавлен сбор имени и телефона")
+    print("✅ Добавлен сбор имени и телефона с инлайн-клавиатурой")
     print("✅ Команда /admin для админ-панели")
     print(f"✅ Файл блокировки: {LOCK_FILE}")
     
-    # Небольшая пауза для гарантии
     await asyncio.sleep(1)
     
-    # Запускаем поллинг
     try:
         await dp.start_polling(bot)
     finally:
-        # При выходе удаляем файл блокировки
         remove_lock()
         print("🛑 Бот остановлен, файл блокировки удалён")
 
