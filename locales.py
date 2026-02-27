@@ -1,4 +1,3 @@
-# locales.py
 from typing import Dict, Any
 
 # Словарь с переводами

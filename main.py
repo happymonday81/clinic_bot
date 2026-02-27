@@ -1,733 +1,186 @@
 import os
 import sys
 import asyncio
-import re
-import calendar
 import tempfile
-from datetime import datetime
+import logging
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, FSInputFile
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-
 from dotenv import load_dotenv
-from db import save_appointment, get_user_appointments, get_all_appointments
-from openpyxl import Workbook
-from locales import get_text
 
+# ========== 1. НАСТРОЙКА ЛОГИРОВАНИЯ (СНАЧАЛА ЛОГИ) ==========
+from config.logging_config import setup_logging
+logger = setup_logging(level=logging.INFO, log_file="logs/bot.log")
+
+# ========== 2. ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ==========
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [988615428]  # ⚠️ ЗАМЕНИТЕ НА СВОЙ TELEGRAM ID
+# ========== 3. ИМПОРТ КОНФИГА ==========
+from config import BOT_TOKEN, ADMIN_IDS
 
-# ========== Файл-блокировка ==========
-LOCK_FILE = os.path.join(tempfile.gettempdir(), f"bot_{BOT_TOKEN[-10:] if BOT_TOKEN else 'unknown'}.lock")
+if not BOT_TOKEN:
+    logger.error("❌ BOT_TOKEN not found! Check .env file")
+    sys.exit(1)
 
-def is_already_running():
+# ========== 4. ФАЙЛ БЛОКИРОВКИ ==========
+LOCK_FILE = os.path.join(
+    tempfile.gettempdir(),
+    f"bot_{BOT_TOKEN[-10:] if BOT_TOKEN else 'unknown'}.lock"
+)
+
+
+def is_already_running() -> bool:
+    """Проверяет, запущен ли уже бот (кроссплатформенная версия)"""
     if os.path.exists(LOCK_FILE):
         try:
             with open(LOCK_FILE, 'r') as f:
-                pid = f.read()
-            os.kill(int(pid), 0)
-            return True
-        except (ProcessLookupError, ValueError, FileNotFoundError):
+                pid = int(f.read().strip())
+            
+            if sys.platform == 'win32':
+                try:
+                    import ctypes
+                    handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
+                    if handle:
+                        ctypes.windll.kernel32.CloseHandle(handle)
+                        return True
+                    return False
+                except:
+                    try:
+                        os.remove(LOCK_FILE)
+                    except:
+                        pass
+                    return False
+            else:
+                try:
+                    os.kill(pid, 0)
+                    return True
+                except ProcessLookupError:
+                    try:
+                        os.remove(LOCK_FILE)
+                    except:
+                        pass
+                    return False
+                except PermissionError:
+                    return True
+        except (ValueError, FileNotFoundError):
             try:
                 os.remove(LOCK_FILE)
             except:
                 pass
             return False
+        except Exception as e:
+            logger.warning(f"Error checking lock file: {e}")
+            return False
     return False
 
+
 def create_lock():
+    """Создаёт файл блокировки"""
     with open(LOCK_FILE, 'w') as f:
         f.write(str(os.getpid()))
 
+
 def remove_lock():
+    """Удаляет файл блокировки"""
     try:
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
-    except:
-        pass
+    except OSError as e:
+        logger.error(f"Failed to remove lock file: {e}")
 
-if is_already_running():
-    print("❌ Бот уже запущен! Завершите другой экземпляр и попробуйте снова.")
-    print(f"   Если уверены, что бот не запущен, удалите файл: {LOCK_FILE}")
-    sys.exit(1)
-create_lock()
 
-# ========== Инициализация бота ==========
+# ========== 5. ИНИЦИАЛИЗАЦИЯ БОТА ==========
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ========== Хранилища ==========
-user_languages = {}
-user_data = {}
-user_phone_temp = {}  # Временное хранилище для ввода телефона
-user_phone_message_id = {}  # ID сообщения с клавиатурой для редактирования
+logger.info("✅ Bot and Dispatcher initialized")
 
-# ========== FSM States ==========
-class AppointmentStates(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_phone = State()
+# ========== 6. ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРОВ (ДО ИМПОРТА ХЕНДЛЕРОВ!) ==========
+from storage.session_manager import UserSessionManager
+from services.appointment_service import AppointmentService
 
-# ========== Клавиатуры ==========
-def language_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru")],
-        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang:en")],
-        [InlineKeyboardButton(text="🇨🇳 中文", callback_data="lang:zh")]
-    ])
+session_manager = UserSessionManager(ttl_minutes=30)
+appointment_service = AppointmentService(session_manager=session_manager)
 
-def main_reply_keyboard(lang='ru'):
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=get_text(lang, 'btn_appointment')), 
-             KeyboardButton(text=get_text(lang, 'btn_my_appointments'))],
-            [KeyboardButton(text=get_text(lang, 'btn_about')), 
-             KeyboardButton(text=get_text(lang, 'btn_contacts'))]
-        ],
-        resize_keyboard=True,
-        input_field_placeholder="..."
-    )
+logger.info("✅ SessionManager and AppointmentService initialized")
 
-def doctor_inline_keyboard(lang='ru'):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"👨‍⚕️ {get_text(lang, 'therapist')}", callback_data="doctor:Терапевт")],
-        [InlineKeyboardButton(text=f"🦷 {get_text(lang, 'dentist')}", callback_data="doctor:Стоматолог")],
-        [InlineKeyboardButton(text=get_text(lang, 'btn_back_to_menu'), callback_data="back_to_menu")]
-    ])
+# ========== 7. ИМПОРТ ХЕНДЛЕРОВ ==========
+from handlers import (
+    start_router,
+    appointment_router,
+    admin_router,
+    callbacks_router,
+    main_menu_router  # ← ДОБАВЬ
+)
 
-def time_inline_keyboard(lang='ru'):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="10:00", callback_data="time:10:00"), 
-         InlineKeyboardButton(text="11:00", callback_data="time:11:00")],
-        [InlineKeyboardButton(text="12:00", callback_data="time:12:00"), 
-         InlineKeyboardButton(text="13:00", callback_data="time:13:00")],
-        [InlineKeyboardButton(text="14:00", callback_data="time:14:00"), 
-         InlineKeyboardButton(text="15:00", callback_data="time:15:00")],
-        [InlineKeyboardButton(text="16:00", callback_data="time:16:00"), 
-         InlineKeyboardButton(text="17:00", callback_data="time:17:00")],
-        [InlineKeyboardButton(text="18:00", callback_data="time:18:00"), 
-         InlineKeyboardButton(text=get_text(lang, 'btn_back'), callback_data="back_to_doctor")]
-    ])
+from handlers.start import init_start
+from handlers.appointment import init_appointment
+from handlers.callbacks import init_callbacks
+from handlers.main_menu import init_main_menu  # ← ДОБАВЬ
 
-def numeric_phone_inline_keyboard(lang='ru', current_number="+7"):
-    """Инлайн-клавиатура с цифрами для ввода телефона"""
-    
-    # Форматируем отображение текущего номера
-    display_number = current_number
-    
-    # Добавляем пробелы для увеличения кнопок
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=" 1 ", callback_data="phone:1"),
-            InlineKeyboardButton(text=" 2 ", callback_data="phone:2"),
-            InlineKeyboardButton(text=" 3 ", callback_data="phone:3")
-        ],
-        [
-            InlineKeyboardButton(text=" 4 ", callback_data="phone:4"),
-            InlineKeyboardButton(text=" 5 ", callback_data="phone:5"),
-            InlineKeyboardButton(text=" 6 ", callback_data="phone:6")
-        ],
-        [
-            InlineKeyboardButton(text=" 7 ", callback_data="phone:7"),
-            InlineKeyboardButton(text=" 8 ", callback_data="phone:8"),
-            InlineKeyboardButton(text=" 9 ", callback_data="phone:9")
-        ],
-        [
-            InlineKeyboardButton(text=" + ", callback_data="phone:+"),
-            InlineKeyboardButton(text=" 0 ", callback_data="phone:0"),
-            InlineKeyboardButton(text=" ⌫ ", callback_data="phone:backspace")
-        ],
-        [
-            InlineKeyboardButton(text="✅ Готово ", callback_data="phone:done"),
-            InlineKeyboardButton(text="📱 Отправить контакт", callback_data="phone:contact")
-        ],
-        [
-            InlineKeyboardButton(text="       🔙 Назад          ", callback_data="back_to_doctor")
-        ]
-    ])
-    return keyboard, display_number
+# ========== 8. ИНИЦИАЛИЗАЦИЯ ХЕНДЛЕРОВ ==========
+init_start(session_manager)
+init_appointment(appointment_service, session_manager)
+init_callbacks(appointment_service, session_manager)
+init_main_menu(session_manager)  # ← ДОБАВЬ
 
-def create_calendar(lang='ru', year=None, month=None):
-    now = datetime.now()
-    if year is None:
-        year = now.year
-    if month is None:
-        month = now.month
+logger.info("✅ All handlers initialized with dependencies")
 
-    keyboard = []
-    month_names = get_text(lang, 'months')
-    
-    keyboard.append([InlineKeyboardButton(text=f"{month_names[month-1]} {year}", callback_data="ignore")])
-    
-    week_days = get_text(lang, 'week_days')
-    keyboard.append([InlineKeyboardButton(text=day, callback_data="ignore") for day in week_days])
+# ========== 9. ПОДКЛЮЧЕНИЕ РОУТЕРОВ (ВАЖЕН ПОРЯДОК!) ==========
+dp.include_router(start_router)        # 1. /start команды
+dp.include_router(appointment_router)  # 2. Запись (FSM) — ДО main_menu!
+dp.include_router(callbacks_router)    # 3. Callback кнопки
+dp.include_router(main_menu_router)    # 4. Кнопки меню — ПОСЛЕ appointment
+dp.include_router(admin_router)        # 5. Админка
 
-    for week in calendar.monthcalendar(year, month):
-        row = []
-        for day in week:
-            if day == 0:
-                row.append(InlineKeyboardButton(text=" ", callback_data="ignore"))
-            else:
-                date_obj = datetime(year, month, day).date()
-                today = now.date()
-                if date_obj < today:
-                    row.append(InlineKeyboardButton(text=f" {day} ", callback_data="ignore"))
-                else:
-                    date_str = date_obj.strftime("%d.%m.%Y")
-                    if date_obj == today:
-                        row.append(InlineKeyboardButton(text=f"✅{day}", callback_data=f"calendar_date:{date_str}"))
-                    else:
-                        row.append(InlineKeyboardButton(text=f"{day}", callback_data=f"calendar_date:{date_str}"))
-        keyboard.append(row)
+logger.info("✅ All routers registered")
 
-    prev_month = month - 1 if month > 1 else 12
-    prev_year = year if month > 1 else year - 1
-    next_month = month + 1 if month < 12 else 1
-    next_year = year if month < 12 else year + 1
-    
-    keyboard.append([
-        InlineKeyboardButton(text="◀️", callback_data=f"calendar:{prev_year}:{prev_month}"),
-        InlineKeyboardButton(text=get_text(lang, 'btn_back'), callback_data="back_to_doctor"),
-        InlineKeyboardButton(text="▶️", callback_data=f"calendar:{next_year}:{next_month}")
-    ])
-    
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-def format_phone_to_international(phone: str) -> str:
-    """Приводит номер к международному формату (+7)"""
-    # Удаляем все нецифровые символы
-    digits = re.sub(r'\D', '', phone)
-    
-    # Если номер начинается с 8 (российский формат), заменяем на +7
-    if digits.startswith('8') and len(digits) == 11:
-        digits = '7' + digits[1:]
-    
-    # Если номер уже с 7 и длина 11, добавляем +
-    if digits.startswith('7') and len(digits) == 11:
-        return f"+{digits}"
-    
-    # Если номер с 7 и длина 10 (без кода страны), добавляем +7
-    if len(digits) == 10:
-        return f"+7{digits}"
-    
-    # Если уже с +, оставляем как есть
-    if phone.startswith('+'):
-        return phone
-    
-    return phone
-
-def validate_phone(phone: str) -> bool:
-    # Сначала приводим к международному формату
-    formatted = format_phone_to_international(phone)
-    # Удаляем все пробелы, дефисы, скобки для проверки
-    cleaned = re.sub(r'[\s\-\(\)]', '', formatted)
-    # Проверяем, что остались только цифры и плюс, и длина от 10 до 15 символов
-    return bool(re.match(r'^\+?[\d]{10,15}$', cleaned))
-
-# ========== Основные хэндлеры ==========
-@dp.message(CommandStart())
-async def start(message: types.Message):
-    await message.answer(
-        "🌐 Please select your language / 请选择语言 / Выберите язык:",
-        reply_markup=language_keyboard()
-    )
-
-@dp.callback_query(lambda c: c.data.startswith('lang:'))
-async def set_language(callback: types.CallbackQuery):
-    lang = callback.data.split(':')[1]
-    user_id = callback.from_user.id
-    user_languages[user_id] = lang
-    await callback.message.delete()
-    await callback.message.answer(
-        get_text(lang, 'welcome'),
-        reply_markup=main_reply_keyboard(lang)
-    )
-    await callback.answer()
-
-# --- Админ-панель ---
-@dp.message(lambda m: m.text == "/admin")
-async def admin_panel(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return await message.answer("❌ У вас нет доступа к админ-панели")
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Экспорт Excel", callback_data="admin_export_excel")]
-    ])
-    await message.answer("🛠 Админ-панель:", reply_markup=keyboard)
-
-@dp.callback_query(lambda c: c.data == "admin_export_excel")
-async def export_excel(callback: types.CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("❌ Доступ запрещён")
-        return
-    
-    downloads_path = str(Path.home() / "Downloads")
-    
-    appointments = get_all_appointments()
-    wb = Workbook()
-    ws = wb.active
-    ws.append(["ID", "User ID", "Username", "Full Name", "Phone", "Doctor", "Date", "Time"])
-    
-    for apt in appointments:
-        ws.append(list(apt))
-    
-    now = datetime.now()
-    date_str = now.strftime("%d.%m.%Y")
-    time_str = now.strftime("%H.%M")
-    filename = f"Записи через бот {date_str} {time_str}.xlsx"
-    filepath = os.path.join(downloads_path, filename)
-    
-    wb.save(filepath)
-    
-    document = FSInputFile(filepath)
-    await callback.message.answer_document(
-        document,
-        caption=f"📊 Выгрузка от {now.strftime('%d.%m.%Y %H:%M')}"
-    )
-    
-    await callback.answer(f"✅ Файл сохранён в Загрузки")
-
-# --- Кнопки главного меню ---
-@dp.message(lambda message: message.text == get_text('ru', 'btn_appointment') or 
-                            message.text == get_text('en', 'btn_appointment') or 
-                            message.text == get_text('zh', 'btn_appointment'))
-async def book_appointment(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    if user_id in user_data:
-        del user_data[user_id]
-    
-    await message.answer(
-        get_text(lang, 'select_doctor'),
-        reply_markup=doctor_inline_keyboard(lang)
-    )
-
-@dp.message(lambda message: message.text == get_text('ru', 'btn_my_appointments') or 
-                            message.text == get_text('en', 'btn_my_appointments') or 
-                            message.text == get_text('zh', 'btn_my_appointments'))
-async def my_appointments(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    appointments = get_user_appointments(user_id)
-    
-    if not appointments:
-        await message.answer(get_text(lang, 'no_appointments'))
-        return
-    
-    text_response = get_text(lang, 'my_appointments') + "\n\n"
-    
-    for apt in appointments:
-        date_obj = datetime.strptime(apt[6], "%Y-%m-%d")
-        date_display = date_obj.strftime("%d.%m.%Y")
-        
-        doctor_ru = apt[5]
-        if doctor_ru == "Терапевт":
-            doctor_display = get_text(lang, 'therapist')
-        else:
-            doctor_display = get_text(lang, 'dentist')
-        
-        text_response += f"🆔 #{apt[0]}\n"
-        text_response += f"👤 {get_text(lang, 'patient')} {apt[3]}\n"
-        text_response += f"📞 {get_text(lang, 'phone')} {apt[4]}\n"
-        text_response += f"👨‍⚕️ {get_text(lang, 'doctor')} {doctor_display}\n"
-        text_response += f"📅 {get_text(lang, 'date')} {date_display}\n"
-        text_response += f"🕐 {get_text(lang, 'time')} {apt[7]}\n"
-        text_response += "———————————————\n"
-    
-    await message.answer(text_response)
-
-@dp.message(lambda message: message.text == get_text('ru', 'btn_about') or 
-                            message.text == get_text('en', 'btn_about') or 
-                            message.text == get_text('zh', 'btn_about'))
-async def about_clinic(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    await message.answer(get_text(lang, 'about'))
-
-@dp.message(lambda message: message.text == get_text('ru', 'btn_contacts') or 
-                            message.text == get_text('en', 'btn_contacts') or 
-                            message.text == get_text('zh', 'btn_contacts'))
-async def contacts(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    await message.answer(get_text(lang, 'contacts'))
-
-# --- Callback handlers ---
-@dp.callback_query(lambda c: c.data == "back_to_menu")
-async def back_to_menu(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    await state.clear()
-    if user_id in user_data:
-        del user_data[user_id]
-    if user_id in user_phone_temp:
-        del user_phone_temp[user_id]
-    if user_id in user_phone_message_id:
-        del user_phone_message_id[user_id]
-    
-    await callback.message.delete()
-    await callback.message.answer(
-        get_text(lang, 'welcome'),
-        reply_markup=main_reply_keyboard(lang)
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data == "back_to_doctor")
-async def back_to_doctor(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    await state.clear()
-    if user_id in user_phone_temp:
-        del user_phone_temp[user_id]
-    if user_id in user_phone_message_id:
-        del user_phone_message_id[user_id]
-    
-    if user_id in user_data and "doctor" in user_data[user_id]:
-        doctor_ru = user_data[user_id]["doctor"]
-        user_data[user_id] = {"doctor": doctor_ru}
-    
-    await callback.message.edit_text(
-        get_text(lang, 'select_doctor'),
-        reply_markup=doctor_inline_keyboard(lang)
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data.startswith('doctor:'))
-async def process_doctor(callback: types.CallbackQuery):
-    doctor_ru = callback.data.split(':', 1)[1]
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    if doctor_ru == "Терапевт":
-        doctor_display = get_text(lang, 'therapist')
-    else:
-        doctor_display = get_text(lang, 'dentist')
-    
-    user_data[user_id] = {
-        "doctor": doctor_ru,
-        "doctor_display": doctor_display
-    }
-    
-    now = datetime.now()
-    await callback.message.edit_text(
-        get_text(lang, 'you_selected_doctor', doctor=doctor_display) + "\n\n" + get_text(lang, 'select_date'),
-        reply_markup=create_calendar(lang, now.year, now.month)
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data.startswith('calendar:'))
-async def process_calendar_navigation(callback: types.CallbackQuery):
-    _, year, month = callback.data.split(':')
-    year, month = int(year), int(month)
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    await callback.message.edit_text(
-        get_text(lang, 'select_date'),
-        reply_markup=create_calendar(lang, year, month)
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data.startswith('calendar_date:'))
-async def process_calendar_date(callback: types.CallbackQuery, state: FSMContext):
-    date_str = callback.data.split(':', 1)[1]
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    if user_id not in user_data or "doctor" not in user_data[user_id]:
-        await callback.message.edit_text("❌ Error. Start over: /start")
-        await callback.answer()
-        return
-    
-    date_obj = datetime.strptime(date_str, "%d.%m.%Y")
-    date_for_db = date_obj.strftime("%Y-%m-%d")
-    date_display = date_obj.strftime("%d.%m")
-    
-    user_data[user_id]["date"] = date_for_db
-    user_data[user_id]["date_display"] = date_display
-    
-    await callback.message.edit_text(
-        get_text(lang, 'you_selected_date', date=date_display) + "\n\n" + get_text(lang, 'select_time'),
-        reply_markup=time_inline_keyboard(lang)
-    )
-    await callback.answer()
-
-@dp.callback_query(lambda c: c.data.startswith('time:'))
-async def process_time(callback: types.CallbackQuery, state: FSMContext):
-    time_str = callback.data.split(':', 1)[1]
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    if user_id not in user_data or "date" not in user_data[user_id]:
-        await callback.message.edit_text("❌ Error. Start over: /start")
-        await callback.answer()
-        return
-    
-    user_data[user_id]["time"] = time_str
-    
-    await state.update_data(appointment_data=user_data[user_id])
-    await state.set_state(AppointmentStates.waiting_for_name)
-    
-    await callback.message.edit_text(
-        get_text(lang, 'you_selected_time', time=time_str) + "\n\n" + get_text(lang, 'enter_name')
-    )
-    await callback.answer()
-
-# --- FSM handlers ---
-@dp.message(AppointmentStates.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    name = message.text.strip()
-    
-    if not name:
-        await message.answer(get_text(lang, 'name_error'))
-        return
-    
-    await state.update_data(name=name)
-    await state.set_state(AppointmentStates.waiting_for_phone)
-    
-    # Инициализируем временное хранилище для телефона с +7
-    user_phone_temp[user_id] = "+7"
-    
-    # Создаем инлайн-клавиатуру для ввода телефона
-    keyboard, display_number = numeric_phone_inline_keyboard(lang, user_phone_temp[user_id])
-    
-    # Отправляем сообщение с клавиатурой
-    msg = await message.answer(
-        f"{get_text(lang, 'enter_phone')}\n"
-        f"📱 **Текущий номер:** `{display_number}`",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    
-    # Сохраняем ID сообщения для последующего редактирования
-    user_phone_message_id[user_id] = msg.message_id
-
-# --- Callback handlers для ввода телефона ---
-@dp.callback_query(lambda c: c.data.startswith('phone:'))
-async def process_phone_input(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    action = callback.data.split(':')[1]
-    
-    # Инициализация, если нужно
-    if user_id not in user_phone_temp:
-        user_phone_temp[user_id] = "+7"
-    
-    current = user_phone_temp[user_id]
-    
-    # Обработка действий
-    if action == "contact":
-        # Отправляем запрос на отправку контакта через reply-клавиатуру
-        contact_keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="📱 Отправить контакт", request_contact=True)]],
-            resize_keyboard=True,
-            one_time_keyboard=True
-        )
-        await callback.message.answer(
-            "Нажмите кнопку ниже, чтобы отправить контакт:",
-            reply_markup=contact_keyboard
-        )
-        await callback.answer()
-        return
-    
-    elif action == "done":
-        if validate_phone(current):
-            # Завершаем запись
-            await complete_appointment(current, callback.message, state, lang, user_id, callback)
-        else:
-            # Показываем ошибку, редактируя сообщение
-            keyboard, display_number = numeric_phone_inline_keyboard(lang, current)
-            await callback.message.edit_text(
-                f"❌ {get_text(lang, 'phone_error')}\n\n"
-                f"{get_text(lang, 'enter_phone')}\n"
-                f"📱 **Текущий номер:** `{display_number}`",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-            await callback.answer()
-        return
-    
-    elif action == "backspace":
-        if len(current) > 2:
-            current = current[:-1]
-        else:
-            current = "+7"
-        user_phone_temp[user_id] = current
-    
-    elif action == "+":
-        if "+" not in current:
-            current += "+"
-            user_phone_temp[user_id] = current
-    
-    else:  # цифры 0-9
-        # Проверяем, что не превышаем лимит цифр
-        digits = re.sub(r'\D', '', current)
-        if len(digits) < 12:
-            current += action
-            user_phone_temp[user_id] = current
-    
-    # Обновляем сообщение с новым номером
-    keyboard, display_number = numeric_phone_inline_keyboard(lang, current)
-    await callback.message.edit_text(
-        f"{get_text(lang, 'enter_phone')}\n"
-        f"📱 **Текущий номер:** `{display_number}`",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-async def complete_appointment(phone: str, message: types.Message, state: FSMContext, lang: str, user_id: int, callback: types.CallbackQuery = None):
-    """Завершает запись и сохраняет в БД"""
-    # Приводим телефон к единому формату
-    phone = format_phone_to_international(phone)
-    
-    data = await state.get_data()
-    appointment_data = data.get('appointment_data', {})
-    name = data.get('name')
-    
-    if not appointment_data and user_id in user_data:
-        appointment_data = user_data[user_id]
-    
-    doctor = appointment_data.get('doctor')
-    date = appointment_data.get('date')
-    time_str = appointment_data.get('time')
-    date_display = appointment_data.get('date_display', date)
-    doctor_display = appointment_data.get('doctor_display', doctor)
-    
-    username = message.from_user.username or message.from_user.full_name or f"User_{user_id}"
-    
-    processing_msg = await message.answer(get_text(lang, 'saving'))
-    
-    appointment_id = save_appointment(
-        user_id=user_id,
-        username=username,
-        full_name=name,
-        phone=phone,
-        doctor=doctor,
-        date=date,
-        time=time_str
-    )
-    
-    if appointment_id:
-        await processing_msg.delete()
-        
-        success_text = (
-            get_text(lang, 'appointment_success') + "\n" +
-            f"📋 **ID:** #{appointment_id}\n" +
-            f"👤 **{get_text(lang, 'patient')}** {name}\n" +
-            f"📞 **{get_text(lang, 'phone')}** `{phone}`\n" +
-            f"👨‍⚕️ **{get_text(lang, 'doctor')}** {doctor_display}\n" +
-            f"📅 **{get_text(lang, 'date')}** {date_display}\n" +
-            f"🕐 **{get_text(lang, 'time')}** {time_str}\n\n" +
-            get_text(lang, 'thanks')
-        )
-        
-        # Возвращаем обычную клавиатуру
-        await message.answer(
-            success_text,
-            reply_markup=main_reply_keyboard(lang),
-            parse_mode="Markdown"
-        )
-        
-        # Если был callback, отвечаем на него
-        if callback:
-            await callback.answer("✅ Запись создана!")
-    else:
-        await processing_msg.edit_text(get_text(lang, 'appointment_error'))
-        if callback:
-            await callback.answer("❌ Ошибка")
-    
-    # Очищаем временные данные
-    await state.clear()
-    if user_id in user_data:
-        del user_data[user_id]
-    if user_id in user_phone_temp:
-        del user_phone_temp[user_id]
-    if user_id in user_phone_message_id:
-        del user_phone_message_id[user_id]
-
-# --- Обработчик контактов ---
-@dp.message(lambda message: message.contact is not None)
-async def handle_contact(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    # Проверяем, что мы в состоянии ожидания телефона
-    current_state = await state.get_state()
-    if current_state != AppointmentStates.waiting_for_phone:
-        return
-    
-    phone = message.contact.phone_number
-    phone = format_phone_to_international(phone)
-    await complete_appointment(phone, message, state, lang, user_id)
-
-# --- Обработчик пустых кнопок ---
-@dp.callback_query(lambda c: c.data == "ignore")
-async def ignore_callback(callback: types.CallbackQuery):
-    await callback.answer()
-
-# --- Обработчик всех остальных сообщений ---
-@dp.message()
-async def handle_other_messages(message: types.Message):
-    user_id = message.from_user.id
-    lang = user_languages.get(user_id, 'ru')
-    
-    # Если пользователь в процессе записи, игнорируем (обрабатывается FSM)
-    if any([user_id in user_data, 
-            await dp.fsm.get_state(bot, user_id, message.chat.id) is not None]):
-        return
-    
-    # Показываем меню на любое сообщение
-    await message.answer(
-        get_text(lang, 'welcome'),
-        reply_markup=main_reply_keyboard(lang)
-    )
-
-# ========== Запуск ==========
+# ========== 11. ЗАПУСК ==========
 async def main():
+    """Основная функция запуска бота"""
+    logger.info("🚀 Starting bot...")
+    
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Вебхук очищен")
-        
-        webhook_info = await bot.get_webhook_info()
-        print(f"ℹ️ Информация о вебхуке: {webhook_info.url if webhook_info.url else 'не установлен'}")
-        
+        logger.info("✅ Webhook deleted")
     except Exception as e:
-        print(f"⚠️ Ошибка при очистке вебхука: {e}")
+        logger.error(f"⚠️ Error deleting webhook: {e}", exc_info=True)
     
-    print("🤖 Мультиязычный бот с инлайн-клавиатурой запущен...")
-    print(f"✅ Admin IDs: {ADMIN_IDS}")
-    print("✅ Поддерживаемые языки: Русский, English, 中文")
-    print("✅ Добавлен сбор имени и телефона с инлайн-клавиатурой")
-    print("✅ Команда /admin для админ-панели")
-    print(f"✅ Файл блокировки: {LOCK_FILE}")
+    logger.info(f"🤖 Bot token: {BOT_TOKEN[:10]}...{BOT_TOKEN[-5:]}")
+    logger.info(f"👥 Admin IDs: {ADMIN_IDS}")
+    logger.info("📡 Bot is polling...")
     
     await asyncio.sleep(1)
     
     try:
         await dp.start_polling(bot)
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot stopped by user (KeyboardInterrupt)")
+    except Exception as e:
+        logger.critical(f"❌ Fatal error: {e}", exc_info=True)
+        raise
     finally:
         remove_lock()
-        print("🛑 Бот остановлен, файл блокировки удалён")
+        await bot.session.close()
+        logger.info("🔓 Bot session closed")
+
 
 if __name__ == "__main__":
+    if is_already_running():
+        logger.error("❌ Bot is already running! Stop the other instance first.")
+        sys.exit(1)
+    
+    create_lock()
+    logger.info(f"✅ Lock file created: {LOCK_FILE}")
+    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("🛑 Бот остановлен пользователем")
-        remove_lock()
+        logger.info("🛑 Bot stopped by user")
     except Exception as e:
-        print(f"❌ Непредвиденная ошибка: {e}")
+        logger.critical(f"❌ Unexpected error: {e}", exc_info=True)
+    finally:
         remove_lock()
+        logger.info("🔓 Lock file removed")
