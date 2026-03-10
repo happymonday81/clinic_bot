@@ -1,138 +1,111 @@
 import re
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def validate_name(name: str, min_length: int = 2, max_length: int = 100) -> bool:
+def validate_name(name: str) -> bool:
     """
-    Валидирует имя пользователя
+    Проверяет, что имя содержит только буквы (кириллица/латиница)
+    
+    Требования:
+    - Только буквы (а-я, A-Z, включая ёЁ)
+    - Минимум 2 символа
+    - Максимум 50 символов
+    - Пробелы разрешены (для фамилии)
+    - Дефис разрешён (для двойных имён)
     
     Args:
         name: Имя для проверки
-        min_length: Минимальная длина
-        max_length: Максимальная длина
     
     Returns:
-        True если имя валидно
+        True если валидно, False если нет
     """
     if not name:
         return False
     
+    # Удаляем ведущие/конечные пробелы
     name = name.strip()
     
-    if len(name) < min_length or len(name) > max_length:
+    # Проверяем длину
+    if len(name) < 2 or len(name) > 50:
         return False
     
-    # Разрешаем буквы, цифры, пробелы, дефисы и апострофы
-    if not re.match(r'^[\w\s\-\']+$', name, re.UNICODE):
+    # Проверяем, что содержит только буквы, пробелы и дефис
+    # \u0400-\u04FF — кириллица, A-Za-z — латиница
+    pattern = r'^[\u0400-\u04FFA-Za-z\s\-]+$'
+    
+    if not re.match(pattern, name):
+        return False
+    
+    # Проверяем, что есть хотя бы одна буква (не только пробелы/дефисы)
+    if not re.search(r'[\u0400-\u04FFA-Za-z]', name):
         return False
     
     return True
 
 
-def format_phone_to_international(phone: str) -> str:
+def validate_phone(phone: str) -> tuple:
     """
-    Приводит номер телефона к международному формату (+7...)
+    Проверяет формат телефона
+    
+    Требования:
+    - Должен начинаться с +
+    - После + только цифры
+    - Минимум 11 цифр (для +7XXXXXXXXXX)
+    - Максимум 15 цифр
     
     Args:
-        phone: Номер телефона в любом формате
+        phone: Телефон для проверки
     
     Returns:
-        Номер в формате +7XXXXXXXXXX
+        (True, '') если валидно
+        (False, 'сообщение об ошибке') если нет
     """
     if not phone:
-        return ""
+        return False, "Телефон не может быть пустым"
     
-    # Удаляем все нецифровые символы кроме +
-    cleaned = re.sub(r'[^\d+]', '', phone)
-    digits = re.sub(r'\D', '', cleaned)
+    # Удаляем пробелы
+    phone = phone.strip()
     
-    # Пустой номер
-    if not digits:
-        return "+7"
+    # Должен начинаться с +
+    if not phone.startswith('+'):
+        return False, "Телефон должен начинаться с +"
     
-    # Российские номера
-    if len(digits) == 11 and digits.startswith('8'):
-        digits = '7' + digits[1:]
+    # После + только цифры
+    digits = phone[1:]
+    if not digits.isdigit():
+        return False, "После + должны быть только цифры"
     
-    if len(digits) == 10:
-        # Добавляем код страны +7
-        return f"+7{digits}"
-    
-    if digits.startswith('7') and len(digits) == 11:
-        return f"+{digits}"
-    
-    # Если уже с +, оставляем как есть
-    if cleaned.startswith('+'):
-        return cleaned
-    
-    # Для других стран просто добавляем +
-    return f"+{digits}"
-
-
-def validate_phone(phone: str) -> tuple[bool, str]:
-    """
-    Валидирует номер телефона
-    
-    Args:
-        phone: Номер для проверки
-    
-    Returns:
-        (is_valid, error_message)
-    """
-    if not phone:
-        return False, "Номер телефона не может быть пустым"
-    
-    digits = re.sub(r'\D', '', phone)
-    
-    if len(digits) < 10:
-        return False, f"Номер слишком короткий: {len(digits)} цифр (минимум 10)"
+    # Проверяем длину (11-15 цифр)
+    if len(digits) < 11:
+        return False, "Слишком короткий номер (минимум 11 цифр)"
     
     if len(digits) > 15:
-        return False, f"Номер слишком длинный: {len(digits)} цифр (максимум 15)"
+        return False, "Слишком длинный номер (максимум 15 цифр)"
     
     return True, ""
 
 
-def sanitize_username(username: Optional[str], user_id: int) -> str:
+def format_phone_to_international(phone: str) -> str:
     """
-    Получает username или создаёт дефолтный
+    Форматирует телефон в международный формат
     
     Args:
-        username: Username из Telegram (может быть None)
-        user_id: Telegram user ID
+        phone: Телефон в любом формате
     
     Returns:
-        Безопасный username
+        Телефон в формате +7XXXXXXXXXX
     """
-    if username:
-        # Удаляем опасные символы
-        sanitized = re.sub(r'[^\w\-]', '', username)
-        return sanitized if sanitized else f"User_{user_id}"
+    # Удаляем всё кроме цифр и +
+    digits = ''.join(c for c in phone if c.isdigit() or c == '+')
     
-    return f"User_{user_id}"
-
-
-def format_date_for_display(date_str: str, lang: str = 'ru') -> str:
-    """
-    Форматирует дату из YYYY-MM-DD в DD.MM.YYYY
+    # Если нет +, добавляем
+    if not digits.startswith('+'):
+        digits = '+' + digits
     
-    Args:
-        date_str: Дата в формате YYYY-MM-DD
-        lang: Язык (пока не используется, для будущего)
+    # Если начинается с +8 и длина 12, заменяем на +7
+    if digits.startswith('+8') and len(digits) == 12:
+        digits = '+7' + digits[2:]
     
-    Returns:
-        Дата в формате DD.MM.YYYY
-    """
-    try:
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        return date_obj.strftime("%d.%m.%Y")
-    except ValueError:
-        logger.error(f"Invalid date format: {date_str}")
-        return date_str
-
-
-# Импортируем datetime здесь чтобы избежать circular import
-from datetime import datetime
+    return digits

@@ -1,21 +1,17 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.state import StatesGroup, State  # ✅ ДОБАВЛЕНО
 from datetime import datetime
 import logging
+import re
 
 from locales import get_text
 from keyboards.main_menu import main_reply_keyboard
-from keyboards.appointment import (
-    doctor_inline_keyboard,
-    time_inline_keyboard,
-    numeric_phone_inline_keyboard,
-    create_calendar
-)
-from services.appointment_service import AppointmentService
-from models.dto import AppointmentCreateDTO
-from utils.helpers import validate_name, format_phone_to_international, validate_phone
+from keyboards.appointment import doctor_inline_keyboard
+from keyboards.error import error_reply_keyboard
 from storage.session_manager import UserSessionManager
+from services.appointment_service import AppointmentService
+from utils.helpers import validate_name, validate_phone
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +22,7 @@ class AppointmentStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_phone = State()
 
-# Глобальные переменные для инициализации (будут заполнены в init_appointment)
-appointment_service: AppointmentService = None
+# Глобальные переменные для инициализации
 session_manager: UserSessionManager = None
 
 
@@ -39,19 +34,14 @@ def init_appointment(service: AppointmentService, manager: UserSessionManager):
         service: AppointmentService instance
         manager: UserSessionManager instance
     """
-    global appointment_service, session_manager
-    appointment_service = service
+    global session_manager
     session_manager = manager
     logger.info("Appointment handler initialized with dependencies")
 
 
-# Константы для кнопок (чтобы не вызывать get_text при импорте)
-APPOINTMENT_BUTTON_KEYS = ['btn_appointment']
-
-
 @router.message(F.text.in_([
-    get_text('ru', 'btn_appointment'), 
-    get_text('en', 'btn_appointment'), 
+    get_text('ru', 'btn_appointment'),
+    get_text('en', 'btn_appointment'),
     get_text('zh', 'btn_appointment')
 ]))
 async def book_appointment(message: types.Message):
@@ -60,23 +50,16 @@ async def book_appointment(message: types.Message):
     
     logger.info(f"User {user_id} started appointment booking")
     
-    # ✅ СОХРАНЯЕМ ЯЗЫК ПЕРЕД ОЧИСТКОЙ
+    # Сохраняем язык перед очисткой
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Очищаем только данные записи, не язык
-    session_manager.set_value(user_id, 'doctor', None)
-    session_manager.set_value(user_id, 'doctor_display', None)
-    session_manager.set_value(user_id, 'date', None)
-    session_manager.set_value(user_id, 'date_display', None)
-    session_manager.set_value(user_id, 'time', None)
-    session_manager.set_value(user_id, 'phone_temp', None)
-    session_manager.set_value(user_id, 'phone_message_id', None)
+    # ✅ ИСПОЛЬЗУЕМ clear_appointment_data вместо установки в None
+    session_manager.clear_appointment_data(user_id)
     
-    # Сохраняем username для будущего использования
-    session_manager.set_value(user_id, 'username', 
-                             message.from_user.username or f"User_{user_id}")
+    # Сохраняем username
+    session_manager.set_value(user_id, 'username', message.from_user.username or f"User_{user_id}")
     
-    # ✅ ВОССТАНАВЛИВАЕМ ЯЗЫК (он мог быть затёрт)
+    # Восстанавливаем язык
     session_manager.set_value(user_id, 'language', lang)
     
     logger.info(f"User {user_id} started booking with language: {lang}")
@@ -91,136 +74,127 @@ async def book_appointment(message: types.Message):
 async def process_name(message: types.Message, state: FSMContext):
     """Обработка ввода имени"""
     user_id = message.from_user.id
-    name = message.text.strip()
+    text = message.text.strip()
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    logger.info(f"📝 User {user_id} entered name: {name}")  # ← Должен быть этот лог
+    logger.info(f"📝 User {user_id} entered: {text}")
     
-    if not validate_name(name):
-        await message.answer(get_text(lang, 'name_error'))
+    # ✅ ПРОВЕРКА НА КНОПКУ "ВЕРНУТЬСЯ В МЕНЮ"
+    back_to_menu_texts = [
+        get_text('ru', 'btn_back_to_menu'),
+        get_text('en', 'btn_back_to_menu'),
+        get_text('zh', 'btn_back_to_menu')
+    ]
+    
+    if text in back_to_menu_texts:
+        logger.info(f"User {user_id} clicked back to menu from FSM state")
+        await state.clear()
+        session_manager.clear_appointment_data(user_id)
+        await message.answer(
+            get_text(lang, 'welcome'),
+            reply_markup=main_reply_keyboard(lang)
+        )
         return
     
-    # Сохраняем имя в FSM state
+    # ✅ ТЕПЕРЬ text — это имя (после проверки на кнопку)
+    name = text
+    
+    # Валидация имени
+    if not validate_name(name):
+        logger.warning(f"Invalid name entered by user {user_id}: '{name}'")
+        await message.answer(
+            f"<b>{get_text(lang, 'error_title')}</b>\n\n"
+            f"{get_text(lang, 'name_error')}\n\n"
+            f"<i>Нажмите «🏠 Вернуться в главное меню», чтобы начать заново</i>",
+            reply_markup=error_reply_keyboard(lang),
+            parse_mode='HTML'
+        )
+        return
+    
+    # ✅ Сохраняем имя в state (теперь name определён!)
     await state.update_data(name=name)
-    await state.set_state(AppointmentStates.waiting_for_phone)
-    
-    # Инициализируем телефон в сессии
-    session_manager.set_value(user_id, 'phone_temp', "+7")
-    
-    # Создаём инлайн-клавиатуру для ввода телефона
-    keyboard = numeric_phone_inline_keyboard(lang, "+7")
-    
-    msg = await message.answer(
-        f"{get_text(lang, 'enter_phone')}\n"
-        f"📱 **Текущий номер:** `+7`",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    
-    # Сохраняем ID сообщения
-    session_manager.set_value(user_id, 'phone_message_id', msg.message_id)
     
     logger.info(f"User {user_id} entered valid name, waiting for phone")
+    
+    # Запрашиваем телефон
+    await message.answer(
+        f"{get_text(lang, 'enter_phone')}\n\n"
+        f"<i>Или нажмите 📱 Отправить контакт</i>",
+        parse_mode='HTML'
+    )
+    
+    # Переключаем состояние
+    await state.set_state(AppointmentStates.waiting_for_phone)
+    
+    # Показываем клавиатуру ввода телефона
+    from keyboards.appointment import numeric_phone_inline_keyboard
+    current = session_manager.get_value(user_id, 'phone_temp', "+7")
+    await message.answer(
+        f"📱 **Текущий номер:** `{current}`",
+        reply_markup=numeric_phone_inline_keyboard(lang, current),
+        parse_mode="Markdown"
+    )
 
 
-@router.message(lambda message: message.contact is not None)
+@router.message(AppointmentStates.waiting_for_phone, F.contact)
 async def handle_contact(message: types.Message, state: FSMContext):
-    """Обработка отправки контакта"""
+    """Обработка отправленного контакта"""
     user_id = message.from_user.id
+    phone = message.contact.phone_number
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Проверяем, что мы в состоянии ожидания телефона
-    current_state = await state.get_state()
-    if current_state != AppointmentStates.waiting_for_phone:
-        return
-    
-    phone = message.contact.phone_number
     logger.info(f"User {user_id} sent contact: {phone}")
     
+    # Форматируем телефон
     formatted_phone = format_phone_to_international(phone)
+    
+    # Завершаем запись
+    from handlers.callbacks import complete_appointment_flow
     await complete_appointment_flow(formatted_phone, message, state, lang, user_id)
 
 
-async def complete_appointment_flow(
-    phone: str,
-    message: types.Message,
-    state: FSMContext,
-    lang: str,
-    user_id: int
-):
-    """Завершает процесс записи"""
-    # Валидация телефона
-    is_valid, error_msg = validate_phone(phone)
-    if not is_valid:
-        await message.answer(f"❌ {error_msg}")
-        return
+@router.message(AppointmentStates.waiting_for_phone)
+async def process_phone_text(message: types.Message, state: FSMContext):
+    """Обработка ввода телефона текстом"""
+    user_id = message.from_user.id
+    text = message.text.strip()
+    lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Получаем данные из state и session
-    state_data = await state.get_data()
-    name = state_data.get('name')
-    appointment_data = session_manager.get(user_id) or {}
+    logger.info(f"User {user_id} entered: {text}")
     
-    if not name or not appointment_data:
-        logger.error(f"Missing data for user {user_id}")
-        await message.answer("❌ Произошла ошибка. Начните сначала: /start")
-        return
+    # ✅ ПРОВЕРКА НА КНОПКУ "ВЕРНУТЬСЯ В МЕНЮ"
+    back_to_menu_texts = [
+        get_text('ru', 'btn_back_to_menu'),
+        get_text('en', 'btn_back_to_menu'),
+        get_text('zh', 'btn_back_to_menu')
+    ]
     
-    # Создаём DTO
-    try:
-        dto = AppointmentCreateDTO(
-            doctor=appointment_data.get('doctor'),
-            doctor_display=appointment_data.get('doctor_display'),
-            date=appointment_data.get('date'),
-            date_display=appointment_data.get('date_display'),
-            time=appointment_data.get('time'),
-            phone=phone,
-            full_name=name
-        )
-    except ValueError as e:
-        logger.error(f"Validation error for user {user_id}: {e}")
-        await message.answer(f"❌ Ошибка валидации: {str(e)}")
-        return
-    
-    # Вызываем сервис
-    result = await appointment_service.create_appointment(user_id, dto)
-    
-    # Обрабатываем результат
-    if result.is_success:
-        success_text = (
-            f"{get_text(lang, 'appointment_success')}\n\n"
-            f"📋 **ID:** #{result.appointment_id}\n"
-            f"👤 **{get_text(lang, 'patient')}** {name}\n"
-            f"📞 **{get_text(lang, 'phone')}** `{phone}`\n"
-            f"👨‍️ **{get_text(lang, 'doctor')}** {dto.doctor_display or dto.doctor}\n"
-            f"📅 **{get_text(lang, 'date')}** {dto.date_display or dto.date}\n"
-            f"🕐 **{get_text(lang, 'time')}** {dto.time}\n\n"
-            f"{get_text(lang, 'thanks')}"
-        )
-        
+    if text in back_to_menu_texts:
+        logger.info(f"User {user_id} clicked back to menu from FSM state")
+        await state.clear()
+        session_manager.clear_appointment_data(user_id)
         await message.answer(
-            success_text,
-            reply_markup=main_reply_keyboard(lang),
-            parse_mode="Markdown"
-        )
-        logger.info(f"Appointment created successfully for user {user_id}: ID={result.appointment_id}")
-    
-    elif result.is_conflict:
-        await message.answer(
-            f"❌ **Конфликт времени!**\n\n"
-            f"{result.error_message}\n\n"
-            f"Пожалуйста, выберите другое время.",
-            reply_markup=main_reply_keyboard(lang),
-            parse_mode="Markdown"
-        )
-        logger.warning(f"Time conflict for user {user_id}")
-    
-    else:
-        await message.answer(
-            f"❌ {get_text(lang, 'appointment_error')}\n"
-            f"Детали: {result.error_message}",
+            get_text(lang, 'welcome'),
             reply_markup=main_reply_keyboard(lang)
         )
-        logger.error(f"Appointment creation failed for user {user_id}: {result.error_message}")
+        return
     
-    # Очищаем state
-    await state.clear()
+    # Завершаем запись
+    from handlers.callbacks import complete_appointment_flow
+    await complete_appointment_flow(text, message, state, lang, user_id)
+
+
+def format_phone_to_international(phone: str) -> str:
+    """Форматирует телефон в международный формат"""
+    # Удаляем всё кроме цифр и +
+    digits = ''.join(c for c in phone if c.isdigit() or c == '+')
+    
+    # Если нет +, добавляем
+    if not digits.startswith('+'):
+        digits = '+' + digits
+    
+    # Если начинается с +7 или +8, нормализуем
+    if digits.startswith('+8') and len(digits) == 12:
+        digits = '+7' + digits[2:]
+    
+    return digits

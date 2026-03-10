@@ -11,35 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 class AppointmentService:
-    """
-    Сервис для управления записями
-    Чистая бизнес-логика без зависимости от UI (aiogram)
-    """
+    """Сервис для управления записями"""
     
-    def __init__(
-        self,
-        session_manager: UserSessionManager,
-        db_repository=None  # Для будущего расширения
-    ):
+    def __init__(self, session_manager: UserSessionManager, db_repository=None):
         self.session_manager = session_manager
         self.db_repository = db_repository
         logger.info("AppointmentService initialized")
     
-    async def create_appointment(
-        self,
-        user_id: int,
-        data: AppointmentCreateDTO
-    ) -> AppointmentResult:
-        """
-        Создаёт запись на приём
-        
-        Args:
-            user_id: Telegram user ID
-            data: DTO с данными записи
-        
-        Returns:
-            AppointmentResult с результатом операции
-        """
+    async def create_appointment(self, user_id: int, data: AppointmentCreateDTO) -> AppointmentResult:
+        """Создаёт запись на приём"""
         logger.info(f"Creating appointment for user {user_id}: {data}")
         
         try:
@@ -51,11 +31,9 @@ class AppointmentService:
             )
             
             if not is_available:
-                logger.warning(
-                    f"Time slot conflict: {data.doctor} at {data.date} {data.time}"
-                )
+                logger.warning(f"Time slot conflict: {data.doctor} at {data.date} {data.time}")
                 return AppointmentResult.conflict(
-                    f"Время {data.time} на {data.date} уже занято"
+                    "Это время уже занято. Пожалуйста, выберите другое"
                 )
             
             # 2. Получаем username
@@ -70,7 +48,8 @@ class AppointmentService:
                 doctor=data.doctor,
                 date=data.date,
                 time=data.time,
-                status=AppointmentStatus.CONFIRMED.value
+                status=AppointmentStatus.CONFIRMED.value,
+                notes=""
             )
             
             if appointment_id:
@@ -90,29 +69,6 @@ class AppointmentService:
             logger.exception(f"Unexpected error creating appointment: {e}")
             return AppointmentResult.database_error(f"Внутренняя ошибка: {str(e)}")
     
-    async def _check_slot_availability(
-        self,
-        doctor: str,
-        date: str,
-        time: str
-    ) -> bool:
-        """
-        Проверяет, свободно ли время
-        
-        TODO: В будущем можно добавить кэширование
-        """
+    async def _check_slot_availability(self, doctor: str, date: str, time: str) -> bool:
+        """Проверяет, свободно ли время"""
         return is_time_slot_available(doctor, date, time)
-    
-    def get_user_appointment_data(self, user_id: int) -> Optional[dict]:
-        """Получает временные данные записи из сессии"""
-        return self.session_manager.get(user_id)
-    
-    def save_user_appointment_data(self, user_id: int, data: dict):
-        """Сохраняет временные данные записи в сессию"""
-        self.session_manager.set(user_id, data)
-        logger.debug(f"Saved appointment data for user {user_id}: {data}")
-    
-    def clear_user_appointment_data(self, user_id: int):
-        """Очищает временные данные записи"""
-        self.session_manager.delete(user_id)
-        logger.debug(f"Cleared appointment data for user {user_id}")

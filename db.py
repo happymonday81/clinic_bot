@@ -48,25 +48,10 @@ def init_db():
         """)
         
         # Создаём индексы для ускорения поиска
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_appointments_user_id 
-        ON appointments(user_id)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_appointments_date_time 
-        ON appointments(date, time)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_appointments_doctor_date_time 
-        ON appointments(doctor, date, time)
-        """)
-        
-        cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_appointments_status 
-        ON appointments(status)
-        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_user_id ON appointments(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date_time ON appointments(date, time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_doctor_date_time ON appointments(doctor, date, time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
         
         # Проверяем наличие колонок
         cursor.execute("PRAGMA table_info(appointments)")
@@ -98,24 +83,13 @@ init_db()
 def is_time_slot_available(doctor: str, date: str, time: str) -> bool:
     """
     Проверяет, свободно ли время у врача
-    
-    Args:
-        doctor: Название врача (RU)
-        date: Дата в формате YYYY-MM-DD
-        time: Время в формате HH:MM
-    
-    Returns:
-        True если время свободно
     """
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM appointments 
-                WHERE doctor = ? 
-                AND date = ? 
-                AND time = ? 
-                AND status IN ('confirmed', 'completed')
+                WHERE doctor = ? AND date = ? AND time = ? AND status IN ('confirmed', 'completed')
             """, (doctor, date, time))
             
             count = cursor.fetchone()[0]
@@ -141,7 +115,7 @@ def save_appointment(
     doctor: str,
     date: str,
     time: str,
-    status: str = AppointmentStatus.CONFIRMED.value,
+    status: str = AppointmentStatus.CONFIRMED.value,  # ✅ Теперь это строка 'confirmed'
     notes: str = "",
     max_retries: int = 5
 ) -> Optional[int]:
@@ -151,6 +125,14 @@ def save_appointment(
     Returns:
         ID записи или None если ошибка
     """
+    # ✅ Логгируем тип status для отладки
+    logger.debug(f"Saving appointment: status={status!r}, type={type(status)}")
+    
+    if hasattr(status, 'value'):
+        status = status.value  # Конвертируем Enum в строку
+    status = str(status)  # Гарантируем строку
+    logger.debug(f"Saving appointment: status={status!r}, type={type(status)}")
+    
     for attempt in range(max_retries):
         try:
             with get_db_connection() as conn:
@@ -175,8 +157,7 @@ def save_appointment(
             if "database is locked" in str(e) and attempt < max_retries - 1:
                 wait_time = 0.1 * (attempt + 1)
                 logger.warning(
-                    f"⚠️ Database locked, retry {attempt + 1}/{max_retries} "
-                    f"in {wait_time}s..."
+                    f"⚠️ Database locked, retry {attempt + 1}/{max_retries} in {wait_time}s..."
                 )
                 import time
                 time.sleep(wait_time)
@@ -192,16 +173,7 @@ def save_appointment(
 
 
 def get_user_appointments(user_id: int, status: str = None) -> List[Tuple]:
-    """
-    Получает записи пользователя
-    
-    Args:
-        user_id: Telegram user ID
-        status: Фильтр по статусу (None = все активные)
-    
-    Returns:
-        Список записей
-    """
+    """Получает записи пользователя"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -211,12 +183,10 @@ def get_user_appointments(user_id: int, status: str = None) -> List[Tuple]:
                 cursor.execute("""
                     SELECT id, user_id, username, full_name, phone, 
                            doctor, date, time, status, created_at
-                    FROM appointments 
-                    WHERE user_id = ? AND status = ?
+                    FROM appointments WHERE user_id = ? AND status = ?
                     ORDER BY date, time
                 """, (user_id, status))
             else:
-                # Показываем только будущие и сегодняшние записи
                 cursor.execute("""
                     SELECT id, user_id, username, full_name, phone, 
                            doctor, date, time, status, created_at
@@ -233,16 +203,7 @@ def get_user_appointments(user_id: int, status: str = None) -> List[Tuple]:
 
 
 def get_all_appointments(status: str = None, limit: int = None) -> List[Tuple]:
-    """
-    Получает все записи (для админа)
-    
-    Args:
-        status: Фильтр по статусу
-        limit: Ограничение количества
-    
-    Returns:
-        Список записей
-    """
+    """Получает все записи (для админа)"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -268,30 +229,19 @@ def get_all_appointments(status: str = None, limit: int = None) -> List[Tuple]:
 
 
 def cancel_appointment(appointment_id: int, user_id: int = None) -> bool:
-    """
-    Отменяет запись
-    
-    Args:
-        appointment_id: ID записи
-        user_id: ID пользователя (для проверки прав, опционально)
-    
-    Returns:
-        True если успешно
-    """
+    """Отменяет запись"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             if user_id:
                 cursor.execute("""
-                    UPDATE appointments 
-                    SET status = 'cancelled'
+                    UPDATE appointments SET status = 'cancelled'
                     WHERE id = ? AND user_id = ? AND status = 'confirmed'
                 """, (appointment_id, user_id))
             else:
                 cursor.execute("""
-                    UPDATE appointments 
-                    SET status = 'cancelled'
+                    UPDATE appointments SET status = 'cancelled'
                     WHERE id = ? AND status = 'confirmed'
                 """, (appointment_id,))
             
@@ -314,10 +264,7 @@ def get_appointment_by_id(appointment_id: int) -> Optional[Tuple]:
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM appointments WHERE id = ?",
-                (appointment_id,)
-            )
+            cursor.execute("SELECT * FROM appointments WHERE id = ?", (appointment_id,))
             return cursor.fetchone()
     except Exception as e:
         logger.error(f"❌ Error getting appointment by ID: {e}", exc_info=True)

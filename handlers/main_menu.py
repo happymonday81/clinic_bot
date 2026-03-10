@@ -1,4 +1,5 @@
 from aiogram import Router, types, F
+from aiogram.fsm.context import FSMContext
 import logging
 
 from locales import get_text
@@ -118,7 +119,34 @@ async def book_appointment_menu(message: types.Message):
     
     logger.info(f"📝 User {user_id} clicked: Записаться")
     
-    # Перенаправляем в appointment handler
     from handlers.appointment import book_appointment
     await book_appointment(message)
 
+
+# ========== Кнопка "Вернуться в меню" (из ошибки) ==========
+@router.message(F.text.in_([
+    get_text('ru', 'btn_back_to_menu'),
+    get_text('en', 'btn_back_to_menu'),
+    get_text('zh', 'btn_back_to_menu')
+]))
+async def back_to_menu_from_error(message: types.Message):
+    """Возврат в меню из состояния ошибки"""
+    user_id = message.from_user.id
+    lang = session_manager.get_value(user_id, 'language', 'ru')
+    
+    logger.info(f"User {user_id} clicked: Back to menu from error")
+    
+    # Очищаем FSM state
+    state = FSMContext(
+        storage=message.bot.storage,
+        key=(user_id, message.chat.id, message.from_user.id)
+    )
+    await state.clear()
+    
+    # ✅ Очищаем данные записи (но сохраняем язык!)
+    session_manager.clear_appointment_data(user_id)
+    
+    await message.answer(
+        get_text(lang, 'welcome'),
+        reply_markup=main_reply_keyboard(lang)
+    )

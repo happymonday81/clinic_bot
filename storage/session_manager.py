@@ -1,9 +1,9 @@
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 import threading
-import logging  # ✅ ДОБАВЛЕНО
+import logging
 
-logger = logging.getLogger(__name__)  # ✅ ДОБАВЛЕНО
+logger = logging.getLogger(__name__)
 
 
 class UserSessionManager:
@@ -48,10 +48,14 @@ class UserSessionManager:
         return data.get(key, default)
     
     def set_value(self, user_id: int, key: str, value: Any):
-        """Устанавливает конкретное значение в сессии"""
-        data = self.get(user_id) or {}
-        data[key] = value
-        self.set(user_id, data)
+        """
+        Устанавливает конкретное значение в сессию
+        """
+        with self._lock:
+            data = self._data.get(user_id, {})
+            data[key] = value
+            self._data[user_id] = data
+            self._timestamps[user_id] = datetime.now()
     
     def delete(self, user_id: int):
         """Удаляет сессию пользователя"""
@@ -84,20 +88,20 @@ class UserSessionManager:
     
     def clear_appointment_data(self, user_id: int):
         """ 
-        Очищает данные записи, но сохраняет язык и другие настройки 
+        Очищает данные записи, но сохраняет язык и другие настройки
+        ✅ ВАЖНО: Удаляем ключи, а не устанавливаем None!
         """
-        # ✅ ИСПРАВЛЕНО: отступ внутри метода
         with self._lock:
             data = self._data.get(user_id, {})
             
-            # Удаляем только поля записи
+            # ✅ Удаляем только поля записи (pop удаляет ключ!)
             appointment_keys = [
                 'doctor', 'doctor_display', 'date', 'date_display', 
                 'time', 'phone_temp', 'phone_message_id', 'username'
             ]
             
             for key in appointment_keys:
-                data.pop(key, None)
+                data.pop(key, None)  # ← Удаляем ключ, а не ставим None!
             
             # Обновляем данные и timestamp
             self._data[user_id] = data

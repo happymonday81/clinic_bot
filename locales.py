@@ -1,273 +1,230 @@
-from typing import Dict, Any
+from typing import Dict
 
-# Словарь с переводами
-TRANSLATIONS = {
-    'ru': {
-        # Приветствие
-        'welcome': "🏥 Вас приветствует бот записи к врачам в клинике CMD!\n\n"
-                   "📌 Что я умею:\n"
-                   "• Записывать вас на приём к специалистам\n"
-                   "• Показывать ваши активные записи\n"
-                   "• Давать информацию о клинике",
-        
-        # Кнопки меню
-        'btn_appointment': "📝 Записаться на приём",
-        'btn_my_appointments': "📋 Мои записи",
-        'btn_about': "ℹ️ О клинике",
-        'btn_contacts': "📞 Контакты",
-        'btn_back': "🔙 Назад",
-        'btn_back_to_menu': "🔙 В меню",
-        'btn_send_contact': "📱 Отправить контакт",
-        
-        # Выбор врача
-        'select_doctor': "👨‍⚕️ Выберите специалиста:",
-        'therapist': "Терапевт",
-        'dentist': "Стоматолог",
-        
-        # Календарь
-        'select_date': "📅 Выберите дату визита:",
-        'you_selected_doctor': "👨‍⚕️ Вы выбрали врача: {doctor}",
-        'you_selected_date': "📅 Вы выбрали дату: {date}",
-        'today': "✅{day}",
-        
-        # Время
-        'select_time': "🕐 Выберите удобное время:",
-        'you_selected_time': "🕐 Вы выбрали время: {time}",
-        
-        # Имя и телефон
-        'enter_name': "📝 Пожалуйста, введите ваши имя и фамилию:",
-        'enter_phone': "📞 Пожалуйста, введите ваш номер телефона:\n(можно отправить контакт кнопкой ниже)",
-        'name_error': "❌ Пожалуйста, введите ваше имя.",
-        'phone_error': "❌ Пожалуйста, введите корректный номер телефона.",
-        
-        # Запись
-        'saving': "⏳ Сохраняем вашу запись...",
-        'appointment_success': "✅ Запись успешно создана!",
-        'appointment_error': "❌ Произошла ошибка при сохранении записи.",
-        
-        # Мои записи
-        'no_appointments': "📭 У вас пока нет активных записей.",
-        'my_appointments': "📋 Ваши актуальные записи:",
-        
-        # О клинике
-        'about': "🏥 Клиника CMD\n\n"
-                 "Мы заботимся о вашем здоровье уже более 10 лет!\n\n"
-                 "🕒 Часы работы:\n"
-                 "Пн-Пт: 8:00 - 20:00\n"
-                 "Сб: 9:00 - 18:00\n"
-                 "Вс: 9:00 - 16:00\n\n"
-                 "📍 Адрес:\n"
-                 "г. Москва, ул. Примерная, д. 123",
-        
-        # Контакты
-        'contacts': "📞 Контакты клиники CMD\n\n"
-                    "☎️ Телефон: +7 (495) 123-45-67\n"
-                    "📧 Email: info@cmd-clinic.ru\n"
-                    "🌐 Сайт: www.cmd-clinic.ru\n\n"
-                    "📱 Telegram: @cmd_clinic",
-        
-        # Месяцы
-        'months': ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
-        
-        # Дни недели
-        'week_days': ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-        
-        # Выбор языка
-        'select_language': "🌐 Please select your language / 请选择语言 / Выберите язык:",
-        'language_selected': "✅ Язык выбран: {lang}\n\n",
-        
-        # Дополнительные тексты
-        'patient': "Пациент:",
-        'doctor': "Врач:",
-        'date': "Дата:",
-        'time': "Время:",
-        'phone': "Телефон:",
-        'thanks': "💚 Спасибо! Мы ждём вас в клинике CMD."
+# ========== ПЕРЕВОДЫ ==========
+TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    # ========== КНОПКИ МЕНЮ ==========
+    'btn_appointment': {
+        'ru': '📝 Записаться на приём',
+        'en': '📝 Book appointment',
+        'zh': '📝 预约就诊'
+    },
+    'btn_my_appointments': {
+        'ru': '📋 Мои записи',
+        'en': '📋 My appointments',
+        'zh': '📋 我的预约'
+    },
+    'btn_about': {
+        'ru': 'ℹ️ О клинике',
+        'en': 'ℹ️ About clinic',
+        'zh': 'ℹ️ 关于诊所'
+    },
+    'btn_contacts': {
+        'ru': '📞 Контакты',
+        'en': '📞 Contacts',
+        'zh': '📞 联系方式'
+    },
+    'btn_back_to_menu': {
+        'ru': '🏠 Вернуться в главное меню',
+        'en': '🏠 Back to main menu',
+        'zh': '🏠 返回主菜单'
+    },
+    'btn_back': {
+        'ru': '🔙 Назад',
+        'en': '🔙 Back',
+        'zh': '🔙 返回'
     },
     
-    'en': {
-        # Приветствие
-        'welcome': "🏥 Welcome to CMD Clinic Appointment Bot!\n\n"
-                   "📌 What I can do:\n"
-                   "• Book appointments with specialists\n"
-                   "• Show your active appointments\n"
-                   "• Provide clinic information",
-        
-        # Кнопки меню
-        'btn_appointment': "📝 Book appointment",
-        'btn_my_appointments': "📋 My appointments",
-        'btn_about': "ℹ️ About clinic",
-        'btn_contacts': "📞 Contacts",
-        'btn_back': "🔙 Back",
-        'btn_back_to_menu': "🔙 To menu",
-        'btn_send_contact': "📱 Send contact",
-        
-        # Выбор врача
-        'select_doctor': "👨‍⚕️ Select specialist:",
-        'therapist': "Therapist",
-        'dentist': "Dentist",
-        
-        # Календарь
-        'select_date': "📅 Select appointment date:",
-        'you_selected_doctor': "👨‍⚕️ You selected: {doctor}",
-        'you_selected_date': "📅 You selected: {date}",
-        'today': "✅{day}",
-        
-        # Время
-        'select_time': "🕐 Select time:",
-        'you_selected_time': "🕐 You selected: {time}",
-        
-        # Имя и телефон
-        'enter_name': "📝 Please enter your full name:",
-        'enter_phone': "📞 Please enter your phone number:\n(you can send contact using button below)",
-        'name_error': "❌ Please enter your name.",
-        'phone_error': "❌ Please enter a valid phone number.",
-        
-        # Запись
-        'saving': "⏳ Saving your appointment...",
-        'appointment_success': "✅ Appointment created!",
-        'appointment_error': "❌ Error saving appointment.",
-        
-        # Мои записи
-        'no_appointments': "📭 You have no active appointments.",
-        'my_appointments': "📋 Your active appointments:",
-        
-        # О клинике
-        'about': "🏥 CMD Clinic\n\n"
-                 "Taking care of your health for over 10 years!\n\n"
-                 "🕒 Working hours:\n"
-                 "Mon-Fri: 8:00 - 20:00\n"
-                 "Sat: 9:00 - 18:00\n"
-                 "Sun: 9:00 - 16:00\n\n"
-                 "📍 Address:\n"
-                 "123 Example St., Moscow",
-        
-        # Контакты
-        'contacts': "📞 CMD Clinic Contacts\n\n"
-                    "☎️ Phone: +7 (495) 123-45-67\n"
-                    "📧 Email: info@cmd-clinic.ru\n"
-                    "🌐 Website: www.cmd-clinic.ru\n\n"
-                    "📱 Telegram: @cmd_clinic",
-        
-        # Месяцы
-        'months': ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December'],
-        
-        # Дни недели
-        'week_days': ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
-        
-        # Выбор языка
-        'select_language': "🌐 Please select your language / 请选择语言 / Выберите язык:",
-        'language_selected': "✅ Language selected: {lang}\n\n",
-        
-        # Дополнительные тексты
-        'patient': "Patient:",
-        'doctor': "Doctor:",
-        'date': "Date:",
-        'time': "Time:",
-        'phone': "Phone:",
-        'thanks': "💚 Thank you! We're waiting for you at CMD Clinic."
+    # ========== ПРИВЕТСТВИЯ ==========
+    'welcome': {
+        'ru': 'Добро пожаловать в нашу клинику!\n\nВыберите действие в меню:',
+        'en': 'Welcome to our clinic!\n\nSelect an action from the menu:',
+        'zh': '欢迎来到我们的诊所！\n\n请从菜单中选择操作：'
     },
     
-    'zh': {
-        # Приветствие
-        'welcome': "🏥 欢迎使用CMD诊所预约机器人！\n\n"
-                   "📌 功能：\n"
-                   "• 预约专科医生\n"
-                   "• 查看您的预约\n"
-                   "• 提供诊所信息",
-        
-        # Кнопки меню
-        'btn_appointment': "📝 预约",
-        'btn_my_appointments': "📋 我的预约",
-        'btn_about': "ℹ️ 关于诊所",
-        'btn_contacts': "📞 联系方式",
-        'btn_back': "🔙 返回",
-        'btn_back_to_menu': "🔙 主菜单",
-        'btn_send_contact': "📱 发送联系人",
-        
-        # Выбор врача
-        'select_doctor': "👨‍⚕️ 选择医生：",
-        'therapist': "治疗师",
-        'dentist': "牙医",
-        
-        # Календарь
-        'select_date': "📅 选择预约日期：",
-        'you_selected_doctor': "👨‍⚕️ 您选择了：{doctor}",
-        'you_selected_date': "📅 您选择了：{date}",
-        'today': "✅{day}",
-        
-        # Время
-        'select_time': "🕐 选择时间：",
-        'you_selected_time': "🕐 您选择了：{time}",
-        
-        # Имя и телефон
-        'enter_name': "📝 请输入您的姓名：",
-        'enter_phone': "📞 请输入您的电话号码：\n(您可以使用下面的按钮发送联系人)",
-        'name_error': "❌ 请输入您的姓名。",
-        'phone_error': "❌ 请输入有效的电话号码。",
-        
-        # Запись
-        'saving': "⏳ 正在保存预约...",
-        'appointment_success': "✅ 预约成功！",
-        'appointment_error': "❌ 保存预约时出错。",
-        
-        # Мои записи
-        'no_appointments': "📭 您目前没有预约。",
-        'my_appointments': "📋 您的当前预约：",
-        
-        # О клинике
-        'about': "🏥 CMD诊所\n\n"
-                 "我们致力于您的健康超过10年！\n\n"
-                 "🕒 工作时间：\n"
-                 "周一至周五：8:00 - 20:00\n"
-                 "周六：9:00 - 18:00\n"
-                 "周日：9:00 - 16:00\n\n"
-                 "📍 地址：\n"
-                 "莫斯科市模范街123号",
-        
-        # Контакты
-        'contacts': "📞 CMD诊所联系方式\n\n"
-                    "☎️ 电话：+7 (495) 123-45-67\n"
-                    "📧 邮箱：info@cmd-clinic.ru\n"
-                    "🌐 网站：www.cmd-clinic.ru\n\n"
-                    "📱 电报：@cmd_clinic",
-        
-        # Месяцы
-        'months': ['一月', '二月', '三月', '四月', '五月', '六月',
-                   '七月', '八月', '九月', '十月', '十一月', '十二月'],
-        
-        # Дни недели
-        'week_days': ['一', '二', '三', '四', '五', '六', '日'],
-        
-        # Выбор языка
-        'select_language': "🌐 Please select your language / 请选择语言 / Выберите язык:",
-        'language_selected': "✅ 已选择语言：{lang}\n\n",
-        
-        # Дополнительные тексты
-        'patient': "患者：",
-        'doctor': "医生：",
-        'date': "日期：",
-        'time': "时间：",
-        'phone': "电话：",
-        'thanks': "💚 谢谢！CMD诊所期待您的光临。"
+    # ========== ЗАПИСЬ ==========
+    'select_doctor': {
+        'ru': 'Выберите врача:',
+        'en': 'Select a doctor:',
+        'zh': '选择医生：'
+    },
+    'select_date': {
+        'ru': 'Выберите дату:',
+        'en': 'Select a date:',
+        'zh': '选择日期：'
+    },
+    'select_time': {
+        'ru': 'Выберите время:',
+        'en': 'Select a time:',
+        'zh': '选择时间：'
+    },
+    'enter_name': {
+        'ru': 'Введите ваше имя:',
+        'en': 'Enter your name:',
+        'zh': '输入您的姓名：'
+    },
+    'enter_phone': {
+        'ru': 'Введите ваш телефон:',
+        'en': 'Enter your phone:',
+        'zh': '输入您的电话：'
+    },
+    'you_selected_doctor': {
+        'ru': 'Вы выбрали врача: {doctor}',
+        'en': 'You selected doctor: {doctor}',
+        'zh': '您选择的医生：{doctor}'
+    },
+    'you_selected_date': {
+        'ru': 'Вы выбрали дату: {date}',
+        'en': 'You selected date: {date}',
+        'zh': '您选择的日期：{date}'
+    },
+    'you_selected_time': {
+        'ru': 'Вы выбрали время: {time}',
+        'en': 'You selected time: {time}',
+        'zh': '您选择的时间：{time}'
+    },
+    'appointment_success': {
+        'ru': '✅ Запись успешно создана!',
+        'en': '✅ Appointment created successfully!',
+        'zh': '✅ 预约成功创建！'
+    },
+    'appointment_error': {
+        'ru': 'Произошла ошибка при создании записи',
+        'en': 'Error creating appointment',
+        'zh': '创建预约时出错'
+    },
+    'thanks': {
+        'ru': 'Спасибо! Ждём вас в клинике.',
+        'en': 'Thank you! We look forward to seeing you.',
+        'zh': '谢谢！我们期待您的到来。'
+    },
+    
+    # ========== МОИ ЗАПИСИ ==========
+    'my_appointments': {
+        'ru': '📋 Ваши записи:',
+        'en': '📋 Your appointments:',
+        'zh': '📋 您的预约：'
+    },
+    'no_appointments': {
+        'ru': 'У вас пока нет записей',
+        'en': 'You have no appointments yet',
+        'zh': '您还没有预约'
+    },
+    
+    # ========== О КЛИНИКЕ ==========
+    'about': {
+        'ru': '🏥 Наша клиника работает с 2010 года.\n\n👨‍⚕️ Квалифицированные врачи\n🔬 Современное оборудование\n⏰ Работаем ежедневно 9:00-20:00',
+        'en': '🏥 Our clinic has been operating since 2010.\n\n👨‍⚕️ Qualified doctors\n🔬 Modern equipment\n⏰ Open daily 9:00-20:00',
+        'zh': '🏥 我们的诊所自 2010 年开始运营。\n\n👨‍⚕️ 合格的医生\n🔬 现代化设备\n⏰ 每天开放 9:00-20:00'
+    },
+    
+    # ========== КОНТАКТЫ ==========
+    'contacts': {
+        'ru': '📞 Телефон: +7 (999) 123-45-67\n📍 Адрес: ул. Примерная, д. 1\n🌐 Сайт: www.clinic.example.com',
+        'en': '📞 Phone: +7 (999) 123-45-67\n📍 Address: Example St., 1\n🌐 Website: www.clinic.example.com',
+        'zh': '📞 电话：+7 (999) 123-45-67\n📍 地址：Example St., 1\n🌐 网站：www.clinic.example.com'
+    },
+    
+    # ========== ОШИБКИ ==========
+    'error_title': {
+        'ru': '❌ Ошибка',
+        'en': '❌ Error',
+        'zh': '❌ 错误'
+    },
+    'name_error': {
+        'ru': 'Пожалуйста, введите ваше имя (только буквы, 2-50 символов)',
+        'en': 'Please enter your name (letters only, 2-50 characters)',
+        'zh': '请输入您的姓名（仅字母，2-50 个字符）'
+    },
+    'phone_error': {
+        'ru': 'Неверный формат телефона. Введите номер в формате +7XXXXXXXXXX',
+        'en': 'Invalid phone format. Enter number as +7XXXXXXXXXX',
+        'zh': '电话号码格式不正确。请输入 +7XXXXXXXXXX'
+    },
+    'session_expired': {
+        'ru': '⏰ Сессия истекла. Пожалуйста, начните заново',
+        'en': '⏰ Session expired. Please start over',
+        'zh': '⏰ 会话已过期。请重新开始'
+    },
+    'database_error': {
+        'ru': 'Произошла ошибка при сохранении записи. Пожалуйста, попробуйте ещё раз',
+        'en': 'Error saving appointment. Please try again',
+        'zh': '保存预约时出错。请重试'
+    },
+    'time_conflict': {
+        'ru': 'Это время уже занято. Пожалуйста, выберите другое',
+        'en': 'This time slot is already booked. Please choose another',
+        'zh': '该时间段已被预订。请选择其他时间'
+    },
+    
+    # ========== ВРАЧИ ==========
+    'therapist': {
+        'ru': 'Терапевт',
+        'en': 'Therapist',
+        'zh': '治疗师'
+    },
+    'dentist': {
+        'ru': 'Стоматолог',
+        'en': 'Dentist',
+        'zh': '牙医'
+    },
+    
+    # ========== ПОЛЯ ==========
+    'patient': {
+        'ru': 'Пациент',
+        'en': 'Patient',
+        'zh': '患者'
+    },
+    'phone': {
+        'ru': 'Телефон',
+        'en': 'Phone',
+        'zh': '电话'
+    },
+    'doctor': {
+        'ru': 'Врач',
+        'en': 'Doctor',
+        'zh': '医生'
+    },
+    'date': {
+        'ru': 'Дата',
+        'en': 'Date',
+        'zh': '日期'
+    },
+    'time': {
+        'ru': 'Время',
+        'en': 'Time',
+        'zh': '时间'
+    },
+    
+    # ========== КАЛЕНДАРЬ ==========
+    'months': {
+        'ru': ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+        'en': ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+        'zh': ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月']
+    },
+    'week_days': {
+        'ru': ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+        'en': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        'zh': ['一', '二', '三', '四', '五', '六', '日']
     }
 }
 
-# Функция для получения текста на нужном языке
+
 def get_text(lang: str, key: str, **kwargs) -> str:
-    """Получает переведённый текст с подстановкой переменных"""
-    if lang not in TRANSLATIONS:
-        lang = 'ru'  # По умолчанию русский
+    """
+    Получает текст перевода
     
-    text = TRANSLATIONS[lang].get(key, TRANSLATIONS['ru'].get(key, key))
+    Args:
+        lang: Код языка ('ru', 'en', 'zh')
+        key: Ключ перевода
+        **kwargs: Параметры для форматирования строки
     
-    # Подставляем переменные, если они есть
-    if kwargs:
-        try:
-            text = text.format(**kwargs)
-        except:
-            pass
-    
-    return text
+    Returns:
+        Текст перевода или ключ если не найдено
+    """
+    try:
+        text = TRANSLATIONS.get(key, {}).get(lang, key)
+        if kwargs:
+            return text.format(**kwargs)
+        return text
+    except Exception as e:
+        return key

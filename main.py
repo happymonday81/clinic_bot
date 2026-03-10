@@ -8,6 +8,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, types
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
+from datetime import datetime, timedelta 
 
 # ========== 1. НАСТРОЙКА ЛОГИРОВАНИЯ (СНАЧАЛА ЛОГИ) ==========
 from config.logging_config import setup_logging
@@ -31,7 +32,7 @@ LOCK_FILE = os.path.join(
 
 
 def is_already_running() -> bool:
-    """Проверяет, запущен ли уже бот (кроссплатформенная версия)"""
+    """Проверяет, запущен ли уже бот (с авто-очисткой stale lock)"""
     if os.path.exists(LOCK_FILE):
         try:
             with open(LOCK_FILE, 'r') as f:
@@ -43,9 +44,21 @@ def is_already_running() -> bool:
                     handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
                     if handle:
                         ctypes.windll.kernel32.CloseHandle(handle)
+                        
+                        # Авто-очистка если файл старше 5 минут
+                        file_time = datetime.fromtimestamp(os.path.getmtime(LOCK_FILE))
+                        if datetime.now() - file_time > timedelta(minutes=5):
+                            logger.warning(f"🧹 Stale lock file detected (>5 min), removing...")
+                            os.remove(LOCK_FILE)
+                            return False
+                        
                         return True
-                    return False
-                except:
+                    else:
+                        os.remove(LOCK_FILE)
+                        logger.info("🧹 Removed stale lock (process not found)")
+                        return False
+                except Exception as e:
+                    logger.warning(f"⚠️ Error checking process: {e}")
                     try:
                         os.remove(LOCK_FILE)
                     except:
@@ -56,10 +69,7 @@ def is_already_running() -> bool:
                     os.kill(pid, 0)
                     return True
                 except ProcessLookupError:
-                    try:
-                        os.remove(LOCK_FILE)
-                    except:
-                        pass
+                    os.remove(LOCK_FILE)
                     return False
                 except PermissionError:
                     return True
@@ -70,7 +80,7 @@ def is_already_running() -> bool:
                 pass
             return False
         except Exception as e:
-            logger.warning(f"Error checking lock file: {e}")
+            logger.warning(f"Error checking lock: {e}")
             return False
     return False
 
@@ -167,14 +177,18 @@ async def main():
         logger.info("🔓 Bot session closed")
 
 
+# ========== ТОЧКА ВХОДА ==========
 if __name__ == "__main__":
+    # Проверка на дубликат
     if is_already_running():
         logger.error("❌ Bot is already running! Stop the other instance first.")
         sys.exit(1)
     
+    # Создаём lock
     create_lock()
     logger.info(f"✅ Lock file created: {LOCK_FILE}")
     
+    # Запускаем бота
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
