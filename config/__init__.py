@@ -30,7 +30,7 @@ def load_admin_ids() -> list:
             try:
                 admin_ids.append(int(item))
             except ValueError:
-                print(f"⚠️ Invalid admin ID: '{item}'")
+                print(f"⚠️ Invalid admin ID: {item}")
     return admin_ids
 
 ADMIN_IDS = load_admin_ids()

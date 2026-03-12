@@ -122,13 +122,13 @@ from handlers import (
     appointment_router,
     admin_router,
     callbacks_router,
-    main_menu_router  # ← ДОБАВЬ
+    main_menu_router
 )
 
 from handlers.start import init_start
 from handlers.appointment import init_appointment
 from handlers.callbacks import init_callbacks
-from handlers.main_menu import init_main_menu  # ← ДОБАВЬ
+from handlers.main_menu import init_main_menu
 
 # ========== 8. ИНИЦИАЛИЗАЦИЯ ХЕНДЛЕРОВ ==========
 init_start(session_manager)

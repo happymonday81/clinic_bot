@@ -1,8 +1,14 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.enums import ParseMode
 from datetime import datetime
 import calendar
 from locales import get_text
-
+from config.doctors import (
+    DOCTORS_CONFIG,
+    get_specialty_name,
+    get_doctors_by_specialty,
+    get_doctor_by_key
+)
 
 def language_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора языка"""
@@ -13,13 +19,56 @@ def language_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def doctor_inline_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
-    """Клавиатура выбора врача"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"👨‍️ {get_text(lang, 'therapist')}", callback_data="doctor:Терапевт")],
-        [InlineKeyboardButton(text=f"🦷 {get_text(lang, 'dentist')}", callback_data="doctor:Стоматолог")],
-        [InlineKeyboardButton(text=get_text(lang, 'btn_back_to_menu'), callback_data="back_to_menu")]
+def specialty_inline_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора специализации.
+    Первый шаг записи.
+    """
+    keyboard = []
+    
+    for specialty_key in DOCTORS_CONFIG.keys():
+        specialty_name = get_specialty_name(specialty_key, lang)
+        keyboard.append([
+            InlineKeyboardButton(
+                text=specialty_name, 
+                callback_data=f"specialty:{specialty_key}"
+            )
+        ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            text=get_text(lang, 'btn_back_to_menu'), 
+            callback_data="back_to_menu"
+        )
     ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def doctors_inline_keyboard(lang: str = 'ru', specialty_key: str = 'therapist') -> InlineKeyboardMarkup:
+    """
+    Клавиатура выбора врача внутри специализации.
+    Автоматически подгружает врачей из config/doctors.py
+    """
+    doctors = get_doctors_by_specialty(specialty_key)
+    
+    keyboard = []
+    for doctor in doctors:
+        doctor_name = doctor['name'].get(lang, doctor['name']['ru'])
+        callback_data = f"doctor:{specialty_key}:{doctor['key']}"
+        keyboard.append([
+            InlineKeyboardButton(text=doctor_name, callback_data=callback_data)
+        ])
+    
+    # Кнопка "Назад к специализациям"
+    keyboard.append([
+        InlineKeyboardButton(
+            text="⬅️ Другая специализация", 
+            callback_data="back_to_specialty"
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def time_inline_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
@@ -117,3 +166,51 @@ def create_calendar(lang: str = 'ru', year: int = None, month: int = None) -> In
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def confirmation_inline_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
+    """
+    Inline-клавиатура для подтверждения записи.
+    Позволяет редактировать каждое поле отдельно.
+    """
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # Редактирование врача
+        [InlineKeyboardButton(text="✏️ Изменить врача", callback_data="edit:doctor")],
+        
+        # Редактирование даты
+        [InlineKeyboardButton(text="✏️ Изменить дату", callback_data="edit:date")],
+        
+        # Редактирование времени
+        [InlineKeyboardButton(text="✏️ Изменить время", callback_data="edit:time")],
+        
+        # Имя и телефон в одну строку
+        [
+            InlineKeyboardButton(text="✏️ Имя", callback_data="edit:name"),
+            InlineKeyboardButton(text="✏️ Телефон", callback_data="edit:phone")
+        ],
+        
+        # Подтверждение (главное действие)
+        [InlineKeyboardButton(text="✅ Подтвердить запись", callback_data="confirm:yes")],
+        
+        # Выход в меню (вместо "Отменить")
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="confirm:cancel")],
+    ])
+    
+    return keyboard
+
+
+def get_confirmation_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
+    """
+    УСТАРЕВШАЯ клавиатура (оставлена для совместимости).
+    Теперь используем confirmation_inline_keyboard.
+    """
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="✅ Да, подтверждаю")],
+            [KeyboardButton(text="⬅️ Назад")],
+            [KeyboardButton(text="🏠 Главное меню")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    return keyboard

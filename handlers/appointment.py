@@ -1,13 +1,19 @@
+import html
+from aiogram.enums import ParseMode
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State  # ✅ ДОБАВЛЕНО
+from aiogram.fsm.state import StatesGroup, State
 from datetime import datetime
 import logging
 import re
 
 from locales import get_text
 from keyboards.main_menu import main_reply_keyboard
-from keyboards.appointment import doctor_inline_keyboard
+from keyboards.appointment import (
+    numeric_phone_inline_keyboard,
+    confirmation_inline_keyboard,
+    specialty_inline_keyboard    # ← ДОБАВЬ ЭТУ (для функции book_appointment)
+)
 from keyboards.error import error_reply_keyboard
 from storage.session_manager import UserSessionManager
 from services.appointment_service import AppointmentService
@@ -21,6 +27,7 @@ router = Router()
 class AppointmentStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_phone = State()
+    confirmation = State()
 
 # Глобальные переменные для инициализации
 session_manager: UserSessionManager = None
@@ -53,7 +60,7 @@ async def book_appointment(message: types.Message):
     # Сохраняем язык перед очисткой
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # ✅ ИСПОЛЬЗУЕМ clear_appointment_data вместо установки в None
+    # Очищаем данные записи
     session_manager.clear_appointment_data(user_id)
     
     # Сохраняем username
@@ -65,8 +72,9 @@ async def book_appointment(message: types.Message):
     logger.info(f"User {user_id} started booking with language: {lang}")
     
     await message.answer(
-        get_text(lang, 'select_doctor'),
-        reply_markup=doctor_inline_keyboard(lang)
+        "🩺 <b>Выберите специализацию:</b>",
+        reply_markup=specialty_inline_keyboard(lang),
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -79,7 +87,7 @@ async def process_name(message: types.Message, state: FSMContext):
     
     logger.info(f"📝 User {user_id} entered: {text}")
     
-    # ✅ ПРОВЕРКА НА КНОПКУ "ВЕРНУТЬСЯ В МЕНЮ"
+    # Проверка на кнопку "Вернуться в меню"
     back_to_menu_texts = [
         get_text('ru', 'btn_back_to_menu'),
         get_text('en', 'btn_back_to_menu'),
@@ -96,22 +104,21 @@ async def process_name(message: types.Message, state: FSMContext):
         )
         return
     
-    # ✅ ТЕПЕРЬ text — это имя (после проверки на кнопку)
     name = text
     
     # Валидация имени
     if not validate_name(name):
-        logger.warning(f"Invalid name entered by user {user_id}: '{name}'")
+        logger.warning(f"Invalid name entered by user {user_id}: {name}")
         await message.answer(
-            f"<b>{get_text(lang, 'error_title')}</b>\n\n"
+            f"{get_text(lang, 'error_title')}\n\n"
             f"{get_text(lang, 'name_error')}\n\n"
             f"<i>Нажмите «🏠 Вернуться в главное меню», чтобы начать заново</i>",
             reply_markup=error_reply_keyboard(lang),
-            parse_mode='HTML'
+            parse_mode=ParseMode.HTML
         )
         return
     
-    # ✅ Сохраняем имя в state (теперь name определён!)
+    # Сохраняем имя в state
     await state.update_data(name=name)
     
     logger.info(f"User {user_id} entered valid name, waiting for phone")
@@ -120,19 +127,18 @@ async def process_name(message: types.Message, state: FSMContext):
     await message.answer(
         f"{get_text(lang, 'enter_phone')}\n\n"
         f"<i>Или нажмите 📱 Отправить контакт</i>",
-        parse_mode='HTML'
+        parse_mode=ParseMode.HTML
     )
     
     # Переключаем состояние
     await state.set_state(AppointmentStates.waiting_for_phone)
     
     # Показываем клавиатуру ввода телефона
-    from keyboards.appointment import numeric_phone_inline_keyboard
     current = session_manager.get_value(user_id, 'phone_temp', "+7")
     await message.answer(
-        f"📱 **Текущий номер:** `{current}`",
+        f"📱 <b>Текущий номер:</b> <code>{html.escape(current)}</code>",  # ← Экранирование + <code>
         reply_markup=numeric_phone_inline_keyboard(lang, current),
-        parse_mode="Markdown"
+        parse_mode=ParseMode.HTML
     )
 
 
@@ -148,9 +154,9 @@ async def handle_contact(message: types.Message, state: FSMContext):
     # Форматируем телефон
     formatted_phone = format_phone_to_international(phone)
     
-    # Завершаем запись
-    from handlers.callbacks import complete_appointment_flow
-    await complete_appointment_flow(formatted_phone, message, state, lang, user_id)
+    # 🎯 Переходим к шагу подтверждения
+    from handlers.callbacks import show_confirmation_step
+    await show_confirmation_step(formatted_phone, message, state, lang, user_id)
 
 
 @router.message(AppointmentStates.waiting_for_phone)
@@ -162,7 +168,7 @@ async def process_phone_text(message: types.Message, state: FSMContext):
     
     logger.info(f"User {user_id} entered: {text}")
     
-    # ✅ ПРОВЕРКА НА КНОПКУ "ВЕРНУТЬСЯ В МЕНЮ"
+    # Проверка на кнопку "Вернуться в меню"
     back_to_menu_texts = [
         get_text('ru', 'btn_back_to_menu'),
         get_text('en', 'btn_back_to_menu'),
@@ -179,9 +185,9 @@ async def process_phone_text(message: types.Message, state: FSMContext):
         )
         return
     
-    # Завершаем запись
-    from handlers.callbacks import complete_appointment_flow
-    await complete_appointment_flow(text, message, state, lang, user_id)
+    # 🎯 Переходим к шагу подтверждения
+    from handlers.callbacks import show_confirmation_step
+    await show_confirmation_step(text, message, state, lang, user_id)
 
 
 def format_phone_to_international(phone: str) -> str:
@@ -193,7 +199,7 @@ def format_phone_to_international(phone: str) -> str:
     if not digits.startswith('+'):
         digits = '+' + digits
     
-    # Если начинается с +7 или +8, нормализуем
+    # Если начинается с +8, нормализуем к +7
     if digits.startswith('+8') and len(digits) == 12:
         digits = '+7' + digits[2:]
     
