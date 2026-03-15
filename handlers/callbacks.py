@@ -295,7 +295,7 @@ async def process_calendar_date(callback: types.CallbackQuery, state: FSMContext
         
         date_obj = datetime.strptime(date_str, "%d.%m.%Y")
         date_for_db = date_obj.strftime("%Y-%m-%d")
-        date_display = date_obj.strftime("%d.%m")
+        date_display = date_obj.strftime("%d.%m.%Y")
         
         session_manager.set_value(user_id, 'date', date_for_db)
         session_manager.set_value(user_id, 'date_display', date_display)
@@ -528,12 +528,12 @@ async def show_confirmation_step(
     confirmation_text = f"""
 📋 <b>Проверьте запись</b>
 
-🩺 <b>Специализация:</b> {safe_specialty}
-👨‍⚕️ <b>Врач:</b> {safe_doctor}
-📅 <b>Дата:</b> {safe_date}
-🕐 <b>Время:</b> {safe_time}
-👤 <b>Имя:</b> {safe_name}
-📞 <b>Телефон:</b> <code>{safe_phone}</code>
+<b>Специализация:</b> {safe_specialty}
+<b>Врач:</b> {safe_doctor}
+<b>Дата:</b> {safe_date}
+<b>Время:</b> {safe_time}
+<b>Имя:</b> {safe_name}
+<b>Телефон:</b> <code>{safe_phone}</code>
 """
     
     # Сохраняем данные в state
@@ -611,15 +611,17 @@ async def finalize_appointment_creation(
         safe_date = html.escape(str(dto.date_display or dto.date))
         safe_time = html.escape(str(dto.time))
         
+        specialty_name = session_data.get('specialty_name', 'Специалист')
+        safe_specialty = html.escape(str(specialty_name))
+
         success_text = (
-            f"{get_text(lang, 'appointment_success')}\n\n"
-            f"📋 <b>ID:</b> #{safe_id}\n"
-            f"👤 <b>{get_text(lang, 'patient')}:</b> {safe_name}\n"
-            f"📞 <b>{get_text(lang, 'phone')}:</b> {safe_phone}\n"
-            f"👨‍⚕️ <b>{get_text(lang, 'doctor')}:</b> {safe_doctor}\n"
-            f"📅 <b>{get_text(lang, 'date')}:</b> {safe_date}\n"
-            f"🕐 <b>{get_text(lang, 'time')}:</b> {safe_time}\n\n"
-            f"{get_text(lang, 'thanks')}"
+            f"✅ <b>Вы записаны на приём</b>\n\n"
+            f"<b>Номер записи:</b> #{safe_id}\n"
+            f"{safe_specialty}\n"
+            f"{safe_doctor}\n"
+            f"{safe_date}\n"
+            f"{safe_time}\n\n"
+            f"❤️ <b>Ждем Вас</b>"
         )
         
         await message.answer(

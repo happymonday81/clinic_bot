@@ -42,3 +42,11 @@ if not BOT_TOKEN:
 # Для отладки (удалишь потом)
 # print(f"✅ Config loaded successfully. Token: {BOT_TOKEN[:10]}...")
 # print(f"✅ Admin IDs: {ADMIN_IDS}")
+
+# ✅ ПУТЬ К ИЗОБРАЖЕНИЮ ПЕРСОНАЖА
+BASE_DIR = Path(__file__).parent.parent
+STATIC_DIR = BASE_DIR / "static"
+WELCOME_IMAGE_PATH = STATIC_DIR / "welcome_bot.png"
+
+if not WELCOME_IMAGE_PATH.exists():
+    print(f"⚠️ Warning: Welcome image not found at {WELCOME_IMAGE_PATH}")
