@@ -1,10 +1,11 @@
-from aiogram import Router, types, F
-from aiogram.types import FSInputFile
 import logging
 
-from locales import get_text
-from keyboards.appointment import language_keyboard
+from aiogram import Router, types
+from aiogram.filters import Command
+from aiogram.types import FSInputFile
 from config import WELCOME_IMAGE_PATH
+from keyboards.appointment import language_keyboard
+from locales import get_text
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ router = Router()
 
 # Глобальная переменная для инициализации
 from storage.session_manager import UserSessionManager
+
 session_manager: UserSessionManager = None
 
 
@@ -22,12 +24,20 @@ def init_start(manager: UserSessionManager):
     logger.info("Start handler initialized with dependencies")
 
 
+# ✅ 2. ДОБАВЬ ДЕКОРАТОР СЮДА:
+@router.message(Command("start"))
 async def handle_start_command(message: types.Message):
     """Обрабатывает команду /start"""
     user_id = message.from_user.id
     logger.info(f"🎯 START COMMAND RECEIVED from user {user_id}")
     
     # Проверяем, есть ли у пользователя сохранённый язык
+    # (Убедись, что session_manager не None, иначе будет ошибка)
+    if session_manager is None:
+        await message.answer("⚠️ Ошибка инициализации бота. Попробуйте позже.")
+        logger.error("session_manager is None in start handler!")
+        return
+
     lang = session_manager.get_value(user_id, 'language')
     
     if lang:
@@ -46,9 +56,9 @@ async def handle_start_command(message: types.Message):
                 await message.answer_photo(
                     photo=photo,
                     caption=(
-                        f"👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
-                        f"Я — ваш персональный ассистент для записи к врачу.\n\n"
-                        f"Please select your language / Выберите язык / 选择语言："
+                        "👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
+                        "Я — ваш персональный ассистент для записи к врачу.\n\n"
+                        "Please select your language / Выберите язык / 选择语言："
                     ),
                     reply_markup=language_keyboard(),
                     parse_mode='HTML'
@@ -58,8 +68,8 @@ async def handle_start_command(message: types.Message):
                 # Если файл не найден — отправляем только текст
                 logger.warning(f"Welcome image not found at {WELCOME_IMAGE_PATH}")
                 await message.answer(
-                    f"👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
-                    f"Please select your language / Выберите язык / 选择语言：",
+                    "👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
+                    "Please select your language / Выберите язык / 选择语言：",
                     reply_markup=language_keyboard(),
                     parse_mode='HTML'
                 )
@@ -67,8 +77,8 @@ async def handle_start_command(message: types.Message):
             logger.error(f"Error sending welcome image: {e}")
             # Fallback на текст
             await message.answer(
-                f"👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
-                f"Please select your language / Выберите язык / 选择语言：",
+                "👋 <b>Добро пожаловать в нашу клинику!</b>\n\n"
+                "Please select your language / Выберите язык / 选择语言：",
                 reply_markup=language_keyboard(),
                 parse_mode='HTML'
             )

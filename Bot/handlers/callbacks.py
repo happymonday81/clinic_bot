@@ -1,34 +1,33 @@
 import html
-from aiogram.enums import ParseMode
-from aiogram import Router, types, F
-from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from datetime import datetime
 import logging
+from datetime import datetime
 
-from locales import get_text
-from keyboards.main_menu import main_reply_keyboard
+from aiogram import F, Router, types
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from keyboards.appointment import (
-    time_inline_keyboard,
-    numeric_phone_inline_keyboard,
-    create_calendar,
     confirmation_inline_keyboard,
+    create_calendar,
+    doctors_inline_keyboard,
+    numeric_phone_inline_keyboard,
     specialty_inline_keyboard,
-    doctors_inline_keyboard
-)
-from config.doctors import (
-    DOCTORS_CONFIG,
-    get_specialty_name,
-    get_doctors_by_specialty,
-    get_doctor_by_key
+    time_inline_keyboard,
 )
 from keyboards.error import error_reply_keyboard
+from keyboards.main_menu import main_reply_keyboard
+from locales import get_text
+from models.doctors import (
+    DOCTORS_CONFIG,
+    get_doctor_by_key,
+    get_specialty_name,
+)
+from models.dto import AppointmentCreateDTO
 from services.appointment_service import AppointmentService
-from models.dto import AppointmentCreateDTO, AppointmentResult
-from models.appointment import Doctor
-from utils.helpers import validate_name, validate_phone
 from storage.session_manager import UserSessionManager
+from utils.helpers import validate_phone
+
 from handlers.appointment import AppointmentStates
 
 logger = logging.getLogger(__name__)
@@ -104,21 +103,18 @@ async def process_specialty(callback: types.CallbackQuery):
         user_id = callback.from_user.id
         lang = session_manager.get_value(user_id, 'language', 'ru')
         
-        # Проверяем, есть ли такая специализация
         if specialty_key not in DOCTORS_CONFIG:
             await safe_callback_answer(callback, "❌ Неверная специализация", show_alert=True)
             return
         
-        # Сохраняем специализацию в сессии
         session_manager.set_value(user_id, 'specialty_key', specialty_key)
         session_manager.set_value(user_id, 'specialty_name', get_specialty_name(specialty_key, lang))
         
         logger.info(f"User {user_id} selected specialty: {specialty_key}")
         
-        # Показываем врачей этой специализации
         specialty_name = get_specialty_name(specialty_key, lang)
         await callback.message.edit_text(
-            f"🩺 <b>{specialty_name}</b>\n\n👨‍⚕️ Выберите врача:",
+            f"🩺 <b>{specialty_name}</b>\n\n👨‍️ Выберите врача:",
             reply_markup=doctors_inline_keyboard(lang, specialty_key),
             parse_mode=ParseMode.HTML
         )
@@ -138,7 +134,6 @@ async def process_specialty(callback: types.CallbackQuery):
 async def process_doctor(callback: types.CallbackQuery, state: FSMContext):
     """Пользователь выбрал врача → переходим к дате"""
     try:
-        # Парсим: doctor:therapist:ivanov_aa
         parts = callback.data.split(':')
         if len(parts) != 3:
             await safe_callback_answer(callback, "❌ Ошибка данных", show_alert=True)
@@ -150,7 +145,6 @@ async def process_doctor(callback: types.CallbackQuery, state: FSMContext):
         user_id = callback.from_user.id
         lang = session_manager.get_value(user_id, 'language', 'ru')
         
-        # Получаем данные врача из конфига
         doctor = get_doctor_by_key(specialty_key, doctor_key)
         if not doctor:
             await safe_callback_answer(callback, "❌ Врач не найден", show_alert=True)
@@ -159,7 +153,6 @@ async def process_doctor(callback: types.CallbackQuery, state: FSMContext):
         doctor_name = doctor['name'].get(lang, doctor['name']['ru'])
         specialty_name = get_specialty_name(specialty_key, lang)
         
-        # Сохраняем данные врача
         session_manager.set_value(user_id, 'doctor_key', doctor_key)
         session_manager.set_value(user_id, 'doctor_display', doctor_name)
         session_manager.set_value(user_id, 'doctor', specialty_name)
@@ -167,7 +160,6 @@ async def process_doctor(callback: types.CallbackQuery, state: FSMContext):
         
         logger.info(f"User {user_id} selected doctor: {doctor_name} ({specialty_name})")
         
-        # Переходим к выбору даты
         await state.set_state(AppointmentStates.waiting_for_name)
         
         now = datetime.now()
@@ -197,7 +189,6 @@ async def back_to_specialty(callback: types.CallbackQuery):
         user_id = callback.from_user.id
         lang = session_manager.get_value(user_id, 'language', 'ru')
         
-        # Очищаем выбор врача
         session_manager.set_value(user_id, 'doctor_key', None)
         session_manager.set_value(user_id, 'doctor_display', None)
         
@@ -210,7 +201,7 @@ async def back_to_specialty(callback: types.CallbackQuery):
         
     except TelegramBadRequest as e:
         if "query is too old" in str(e) or "message is not modified" in str(e):
-            logger.debug(f"⏰ Back to specialty expired")
+            logger.debug("⏰ Back to specialty expired")
         else:
             logger.warning(f"Telegram error: {e}")
     except Exception as e:
@@ -220,15 +211,11 @@ async def back_to_specialty(callback: types.CallbackQuery):
 # ========== Callback: Назад к выбору специализации (обновлённый) ==========
 @router.callback_query(F.data == "back_to_doctor")
 async def back_to_doctor(callback: types.CallbackQuery, state: FSMContext):
-    """
-    Возврат к выбору специализации (новая логика).
-    Используем этот же callback_data для совместимости со старыми клавиатурами.
-    """
+    """Возврат к выбору специализации (новая логика)."""
     try:
         user_id = callback.from_user.id
         lang = session_manager.get_value(user_id, 'language', 'ru')
         
-        # Очищаем данные врача и даты
         session_manager.set_value(user_id, 'doctor_key', None)
         session_manager.set_value(user_id, 'doctor_display', None)
         session_manager.set_value(user_id, 'date', None)
@@ -243,7 +230,7 @@ async def back_to_doctor(callback: types.CallbackQuery, state: FSMContext):
         
     except TelegramBadRequest as e:
         if "query is too old" in str(e) or "message is not modified" in str(e):
-            logger.debug(f"⏰ Back to doctor expired")
+            logger.debug("⏰ Back to doctor expired")
         else:
             logger.warning(f"Telegram error: {e}")
     except Exception as e:
@@ -286,7 +273,6 @@ async def process_calendar_date(callback: types.CallbackQuery, state: FSMContext
         user_id = callback.from_user.id
         lang = session_manager.get_value(user_id, 'language', 'ru')
         
-        # Проверяем, выбран ли врач (через doctor_key)
         doctor_key = session_manager.get_value(user_id, 'doctor_key')
         if not doctor_key:
             await callback.message.edit_text("❌ Error. Start over: /start")
@@ -383,13 +369,15 @@ async def process_phone_input(callback: types.CallbackQuery, state: FSMContext):
         
         # Кнопка "Отправить контакт"
         if action == "contact":
+            btn_text = get_text(lang, 'btn_send_contact')
             contact_keyboard = ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text="📱 Отправить контакт", request_contact=True)]],
+                keyboard=[[KeyboardButton(text=btn_text, request_contact=True)]],
                 resize_keyboard=True,
                 one_time_keyboard=True
             )
+            hint_text = get_text(lang, 'press_button_to_send_contact')
             await callback.message.answer(
-                "Нажмите кнопку ниже, чтобы отправить контакт:",
+                hint_text,
                 reply_markup=contact_keyboard
             )
             await safe_callback_answer(callback)
@@ -510,31 +498,30 @@ async def show_confirmation_step(
     state_data = await state.get_data()
     session_data = session_manager.get(user_id) or {}
     
-    specialty_name = session_data.get('specialty_name') or session_data.get('doctor', 'Не указана')
-    doctor_name = session_data.get('doctor_display', 'Не указан')
-    date = session_data.get('date_display') or session_data.get('date', 'Не указана')
-    time = session_data.get('time', 'Не указано')
-    name = state_data.get('name', 'Не указано')
+    specialty_name = session_data.get('specialty_name') or session_data.get('doctor', 'Not specified')
+    doctor_name = session_data.get('doctor_display', 'Not specified')
+    date = session_data.get('date_display') or session_data.get('date', 'Not specified')
+    time = session_data.get('time', 'Not specified')
+    name = state_data.get('name', 'Not specified')
     
     # 🔒 Экранируем все пользовательские данные для безопасности HTML
     safe_specialty = html.escape(str(specialty_name))
     safe_doctor = html.escape(str(doctor_name))
     safe_date = html.escape(str(date))
     safe_time = html.escape(str(time))
-    safe_name = html.escape(str(name))  # ← ИСПРАВЛЕНО: добавлено экранирование имени
+    safe_name = html.escape(str(name))
     safe_phone = html.escape(str(phone))
     
-    # 📝 Формируем сообщение со ВСЕМИ 6 полями
-    confirmation_text = f"""
-📋 <b>Проверьте запись</b>
-
-<b>Специализация:</b> {safe_specialty}
-<b>Врач:</b> {safe_doctor}
-<b>Дата:</b> {safe_date}
-<b>Время:</b> {safe_time}
-<b>Имя:</b> {safe_name}
-<b>Телефон:</b> <code>{safe_phone}</code>
-"""
+    # ✅ ПОЛНАЯ ЛОКАЛИЗАЦИЯ ЭКРАНА ПОДТВЕРЖДЕНИЯ
+    confirmation_text = (
+        f"📋 <b>{get_text(lang, 'confirm_appointment_title')}</b>\n\n"
+        f"<b>{get_text(lang, 'lbl_specialty')}:</b> {safe_specialty}\n"
+        f"<b>{get_text(lang, 'lbl_doctor')}:</b> {safe_doctor}\n"
+        f"<b>{get_text(lang, 'lbl_date')}:</b> {safe_date}\n"
+        f"<b>{get_text(lang, 'lbl_time')}:</b> {safe_time}\n"
+        f"<b>{get_text(lang, 'lbl_name')}:</b> {safe_name}\n"
+        f"<b>{get_text(lang, 'lbl_phone')}:</b> <code>{safe_phone}</code>"
+    )
     
     # Сохраняем данные в state
     await state.update_data(phone=phone, name=name)
@@ -605,23 +592,22 @@ async def finalize_appointment_creation(
     
     # Обрабатываем результат
     if result.is_success:
-        # 🔒 Экранируем все переменные
         safe_id = html.escape(str(result.appointment_id))
         safe_doctor = html.escape(str(dto.doctor_display or dto.doctor))
         safe_date = html.escape(str(dto.date_display or dto.date))
         safe_time = html.escape(str(dto.time))
         
-        specialty_name = session_data.get('specialty_name', 'Специалист')
+        specialty_name = session_data.get('specialty_name', 'Specialist')
         safe_specialty = html.escape(str(specialty_name))
 
         success_text = (
-            f"✅ <b>Вы записаны на приём</b>\n\n"
-            f"<b>Номер записи:</b> #{safe_id}\n"
+            f"✅ <b>{get_text(lang, 'appointment_success')}</b>\n\n"
+            f"<b>ID:</b> #{safe_id}\n"
             f"{safe_specialty}\n"
             f"{safe_doctor}\n"
             f"{safe_date}\n"
             f"{safe_time}\n\n"
-            f"❤️ <b>Ждем Вас</b>"
+            f"❤️ <b>{get_text(lang, 'thanks')}</b>"
         )
         
         await message.answer(
@@ -635,9 +621,9 @@ async def finalize_appointment_creation(
         safe_error = html.escape(str(result.error_message)) if result.error_message else ""
         await message.answer(
             f"{get_text(lang, 'error_title')}\n\n"
-            f"❌ <b>Конфликт времени!</b>\n\n"
+            f"❌ <b>{get_text(lang, 'time_conflict')}</b>\n\n"
             f"{safe_error}\n\n"
-            f"Пожалуйста, выберите другое время.",
+            f"{get_text(lang, 'select_time')}",
             reply_markup=error_reply_keyboard(lang),
             parse_mode=ParseMode.HTML
         )
@@ -648,7 +634,7 @@ async def finalize_appointment_creation(
         await message.answer(
             f"{get_text(lang, 'error_title')}\n\n"
             f"{safe_error}\n\n"
-            f"<i>Нажмите «🏠 Вернуться в главное меню», чтобы начать заново</i>",
+            f"<i>{get_text(lang, 'btn_back_to_menu')}</i>",
             reply_markup=error_reply_keyboard(lang),
             parse_mode=ParseMode.HTML
         )
@@ -667,7 +653,6 @@ async def edit_doctor(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Получаем текущую специализацию
     specialty_key = session_manager.get_value(user_id, 'specialty_key')
     if not specialty_key:
         await callback.message.edit_text(
@@ -678,14 +663,12 @@ async def edit_doctor(callback: types.CallbackQuery, state: FSMContext):
         await safe_callback_answer(callback)
         return
     
-    # Очищаем только врача
     session_manager.set_value(user_id, 'doctor_key', None)
     session_manager.set_value(user_id, 'doctor_display', None)
     
-    # Показываем врачей этой специализации
     specialty_name = get_specialty_name(specialty_key, lang)
     await callback.message.edit_text(
-        f"🩺 <b>{specialty_name}</b>\n\n👨‍⚕️ Выберите врача:",
+        f"🩺 <b>{specialty_name}</b>\n\n👨‍️ Выберите врача:",
         reply_markup=doctors_inline_keyboard(lang, specialty_key),
         parse_mode=ParseMode.HTML
     )
@@ -698,11 +681,9 @@ async def edit_date(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Очищаем дату
     session_manager.set_value(user_id, 'date', None)
     session_manager.set_value(user_id, 'date_display', None)
     
-    # Проверяем, выбрана ли специализация
     specialty = session_manager.get_value(user_id, 'specialty_key')
     if not specialty:
         await callback.message.edit_text(
@@ -713,7 +694,6 @@ async def edit_date(callback: types.CallbackQuery, state: FSMContext):
         await safe_callback_answer(callback)
         return
     
-    # Проверяем, выбран ли врач
     doctor_key = session_manager.get_value(user_id, 'doctor_key')
     if not doctor_key:
         await callback.message.edit_text(
@@ -724,10 +704,9 @@ async def edit_date(callback: types.CallbackQuery, state: FSMContext):
         await safe_callback_answer(callback)
         return
     
-    # Показываем календарь
     now = datetime.now()
     await callback.message.edit_text(
-        "📅 Выберите дату:",
+        get_text(lang, 'select_date'),
         reply_markup=create_calendar(lang, now.year, now.month)
     )
     await safe_callback_answer(callback)
@@ -739,10 +718,8 @@ async def edit_time(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Очищаем время
     session_manager.set_value(user_id, 'time', None)
     
-    # Проверяем, выбрана ли дата
     date = session_manager.get_value(user_id, 'date')
     if not date:
         await callback.message.answer(
@@ -752,9 +729,8 @@ async def edit_time(callback: types.CallbackQuery, state: FSMContext):
         await safe_callback_answer(callback)
         return
     
-    # Показываем выбор времени
     await callback.message.edit_text(
-        "🕐 Выберите время:",
+        get_text(lang, 'select_time'),
         reply_markup=time_inline_keyboard(lang)
     )
     await safe_callback_answer(callback)
@@ -768,18 +744,16 @@ async def edit_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Удаляем старое имя из state
     data = await state.get_data()
     data.pop('name', None)
     await state.set_data(data)
     
     await callback.message.edit_text(
-        "👤 Введите ваше имя (фамилия и имя):",
+        get_text(lang, 'enter_name'),
         reply_markup=types.ReplyKeyboardRemove()
     )
     await safe_callback_answer(callback)
     
-    # Переходим в состояние ожидания имени
     await state.set_state(AppointmentStates.waiting_for_name)
     
     logger.info(f"User {user_id} editing name")
@@ -791,16 +765,14 @@ async def edit_phone(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = session_manager.get_value(user_id, 'language', 'ru')
     
-    # Сбрасываем телефон
     session_manager.set_value(user_id, 'phone_temp', "+7")
     
     await callback.message.edit_text(
-        "📞 Введите номер телефона:",
+        get_text(lang, 'enter_phone'),
         reply_markup=numeric_phone_inline_keyboard(lang, "+7")
     )
     await safe_callback_answer(callback)
     
-    # Переходим в состояние ожидания телефона
     await state.set_state(AppointmentStates.waiting_for_phone)
     
     logger.info(f"User {user_id} editing phone")
@@ -816,14 +788,12 @@ async def confirm_appointment_inline(callback: types.CallbackQuery, state: FSMCo
     
     logger.info(f"User {user_id} confirmed appointment via inline button")
     
-    # Показываем сообщение о подтверждении
     await callback.message.edit_text(
-        "⏳ <b>Создаю запись...</b>",
+        "⏳ <b>Creating appointment...</b>",
         parse_mode=ParseMode.HTML
     )
     await safe_callback_answer(callback)
     
-    # Создаём запись
     await finalize_appointment_creation(callback.message, state, lang, user_id)
 
 
@@ -835,13 +805,12 @@ async def cancel_appointment_inline(callback: types.CallbackQuery, state: FSMCon
     
     logger.info(f"User {user_id} cancelled appointment (returned to menu)")
     
-    # Очищаем всё
     await state.clear()
     session_manager.clear_appointment_data(user_id)
     
     await callback.message.delete()
     await callback.message.answer(
-        "⚠️ Запись не создана.\n\nВыберите действие:",
+        "⚠️ Appointment cancelled.\n\nSelect an action:",
         reply_markup=main_reply_keyboard(lang)
     )
     await safe_callback_answer(callback)

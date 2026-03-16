@@ -1,7 +1,7 @@
-from typing import Dict
+from typing import Dict, Any
 
 # ========== ПЕРЕВОДЫ ==========
-TRANSLATIONS: Dict[str, Dict[str, str]] = {
+TRANSLATIONS: Dict[str, Dict[str, Any]] = {
     # ========== КНОПКИ МЕНЮ ==========
     'btn_appointment': {
         'ru': '📝 Записаться на приём',
@@ -34,6 +34,63 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'zh': '🔙 返回'
     },
     
+    # ========== НОВЫЕ КНОПКИ (ТЕЛЕФОН И РЕДАКТИРОВАНИЕ) ==========
+    'btn_done': {
+        'ru': '✅ Готово',
+        'en': '✅ Done',
+        'zh': '✅ 完成'
+    },
+    'btn_send_contact': {
+        'ru': '📱 Отправить контакт',
+        'en': '📱 Send Contact',
+        'zh': '📱 发送联系人'
+    },
+    'btn_other_specialty': {
+        'ru': '⬅️ Другая специализация',
+        'en': '⬅️ Other Specialty',
+        'zh': '⬅️ 其他科室'
+    },
+    'btn_edit_doctor': {
+        'ru': '✏️ Изменить врача',
+        'en': '✏️ Change Doctor',
+        'zh': '✏️ 更换医生'
+    },
+    'btn_edit_date': {
+        'ru': '✏️ Изменить дату',
+        'en': '✏️ Change Date',
+        'zh': '✏️ 更改日期'
+    },
+    'btn_edit_time': {
+        'ru': '✏️ Изменить время',
+        'en': '✏️ Change Time',
+        'zh': '✏️ 更改时间'
+    },
+    'btn_edit_name': {
+        'ru': '✏️ Имя',
+        'en': '✏️ Name',
+        'zh': '✏️ 姓名'
+    },
+    'btn_edit_phone': {
+        'ru': '✏️ Телефон',
+        'en': '✏️ Phone',
+        'zh': '✏️ 电话'
+    },
+    'btn_confirm_appointment': {
+        'ru': '✅ Подтвердить запись',
+        'en': '✅ Confirm Appointment',
+        'zh': '✅ 确认预约'
+    },
+    'btn_main_menu': {
+        'ru': '🏠 Главное меню',
+        'en': '🏠 Main Menu',
+        'zh': '🏠 主菜单'
+    },
+    'btn_yes_confirm': {
+        'ru': '✅ Да, подтверждаю',
+        'en': '✅ Yes, Confirm',
+        'zh': '✅ 是的，确认'
+    },
+
     # ========== ПРИВЕТСТВИЯ ==========
     'welcome': {
         'ru': 'Добро пожаловать в нашу клинику!\n\nВыберите действие в меню:',
@@ -64,8 +121,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
     },
     'enter_phone': {
         'ru': 'Введите ваш телефон:',
-        'en': 'Enter your phone:',
-        'zh': '输入您的电话：'
+        'en': 'Enter your phone number:',
+        'zh': '输入您的电话号码：'
     },
     'you_selected_doctor': {
         'ru': 'Вы выбрали врача: {doctor}',
@@ -156,7 +213,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'zh': '该时间段已被预订。请选择其他时间'
     },
     
-    # ========== ВРАЧИ ==========
+    # ========== ВРАЧИ И СПЕЦИАЛЬНОСТИ ==========
     'therapist': {
         'ru': 'Терапевт',
         'en': 'Therapist',
@@ -168,7 +225,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'zh': '牙医'
     },
     
-    # ========== ПОЛЯ ==========
+    # ========== ПОЛЯ (БАЗОВЫЕ) ==========
     'patient': {
         'ru': 'Пациент',
         'en': 'Patient',
@@ -195,7 +252,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'zh': '时间'
     },
     
-    # ========== КАЛЕНДАРЬ ==========
+    # ========== КАЛЕНДАРЬ (СПИСКИ) ==========
     'months': {
         'ru': ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
         'en': ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
@@ -205,6 +262,60 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'ru': ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
         'en': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
         'zh': ['一', '二', '三', '四', '五', '六', '日']
+    },
+
+    # ========== ЭКРАН ПОДТВЕРЖДЕНИЯ (НОВЫЕ КЛЮЧИ) ==========
+    'confirm_appointment_title': {
+        'ru': 'Проверьте запись',
+        'en': 'Check your appointment',
+        'zh': '检查您的预约'
+    },
+    'lbl_specialty': {
+        'ru': 'Специализация',
+        'en': 'Specialty',
+        'zh': '科室'
+    },
+    'lbl_doctor': {
+        'ru': 'Врач',
+        'en': 'Doctor',
+        'zh': '医生'
+    },
+    'lbl_date': {
+        'ru': 'Дата',
+        'en': 'Date',
+        'zh': '日期'
+    },
+    'lbl_time': {
+        'ru': 'Время',
+        'en': 'Time',
+        'zh': '时间'
+    },
+    'lbl_name': {
+        'ru': 'Имя',
+        'en': 'Name',
+        'zh': '姓名'
+    },
+    'lbl_phone': {
+        'ru': 'Телефон',
+        'en': 'Phone',
+        'zh': '电话'
+    },
+    
+    # ========== ПОДСКАЗКИ ==========
+    'or_send_contact_hint': {
+        'ru': 'Или нажмите 📱 Отправить контакт',
+        'en': 'Or tap 📱 Send Contact',
+        'zh': '或点击 📱 发送联系人'
+    },
+    'current_number_label': {
+        'ru': '📱 <b>Текущий номер:</b>',
+        'en': '📱 <b>Current number:</b>',
+        'zh': '📱 <b>当前号码：</b>'
+    },
+    'press_button_to_send_contact': {
+        'ru': 'Нажмите кнопку ниже, чтобы отправить контакт:',
+        'en': 'Tap the button below to send your contact:',
+        'zh': '点击下方按钮发送您的联系人：'
     }
 }
 
@@ -222,7 +333,13 @@ def get_text(lang: str, key: str, **kwargs) -> str:
         Текст перевода или ключ если не найдено
     """
     try:
-        text = TRANSLATIONS.get(key, {}).get(lang, key)
+        translation_dict = TRANSLATIONS.get(key)
+        if not translation_dict:
+            return key
+        
+        # Пробуем получить язык, если нет - берем русский, если нет русского - возвращаем ключ
+        text = translation_dict.get(lang, translation_dict.get('ru', key))
+        
         if kwargs:
             return text.format(**kwargs)
         return text

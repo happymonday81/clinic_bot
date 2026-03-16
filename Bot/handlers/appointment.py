@@ -1,23 +1,20 @@
 import html
-from aiogram.enums import ParseMode
-from aiogram import Router, types, F
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from datetime import datetime
 import logging
-import re
 
-from locales import get_text
-from keyboards.main_menu import main_reply_keyboard
+from aiogram import F, Router, types
+from aiogram.enums import ParseMode
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from keyboards.appointment import (
     numeric_phone_inline_keyboard,
-    confirmation_inline_keyboard,
-    specialty_inline_keyboard    # ← ДОБАВЬ ЭТУ (для функции book_appointment)
+    specialty_inline_keyboard,
 )
 from keyboards.error import error_reply_keyboard
-from storage.session_manager import UserSessionManager
+from keyboards.main_menu import main_reply_keyboard
+from locales import get_text
 from services.appointment_service import AppointmentService
-from utils.helpers import validate_name, validate_phone
+from storage.session_manager import UserSessionManager
+from utils.helpers import validate_name
 
 logger = logging.getLogger(__name__)
 
@@ -55,25 +52,33 @@ async def book_appointment(message: types.Message):
     """Начинает процесс записи"""
     user_id = message.from_user.id
     
-    logger.info(f"User {user_id} started appointment booking")
+    # 1. Сначала получаем язык ПОКА сессия еще целая
+    current_lang = session_manager.get_value(user_id, 'language')
     
-    # Сохраняем язык перед очисткой
-    lang = session_manager.get_value(user_id, 'language', 'ru')
+    # Если в сессии нет (None), пробуем угадать по тексту кнопки или ставим ru
+    if not current_lang:
+        # Логика fallback: если кнопка была английской, то en, иначе ru
+        if message.text == get_text('en', 'btn_appointment'):
+            current_lang = 'en'
+        elif message.text == get_text('zh', 'btn_appointment'):
+            current_lang = 'zh'
+        else:
+            current_lang = 'ru'
+            
+    logger.info(f"User {user_id} started booking. Detected lang: {current_lang}")
     
-    # Очищаем данные записи
+    # 2. Очищаем ТОЛЬКО данные записи (убедись, что clear_appointment_data НЕ трогает 'language')
+    # Если твой менеджер удаляет ВСЁ, то нужно сохранять язык во временную переменную и восстанавливать
     session_manager.clear_appointment_data(user_id)
     
-    # Сохраняем username
+    # 3. Явно сохраняем язык обратно (на случай если очистка его стерла)
+    session_manager.set_value(user_id, 'language', current_lang)
     session_manager.set_value(user_id, 'username', message.from_user.username or f"User_{user_id}")
     
-    # Восстанавливаем язык
-    session_manager.set_value(user_id, 'language', lang)
-    
-    logger.info(f"User {user_id} started booking with language: {lang}")
-    
+    # 4. Используем сохраненный язык
     await message.answer(
         "🩺 <b>Выберите специализацию:</b>",
-        reply_markup=specialty_inline_keyboard(lang),
+        reply_markup=specialty_inline_keyboard(current_lang),
         parse_mode=ParseMode.HTML
     )
 
@@ -124,9 +129,10 @@ async def process_name(message: types.Message, state: FSMContext):
     logger.info(f"User {user_id} entered valid name, waiting for phone")
     
     # Запрашиваем телефон
+    # Добавим новый ключ 'or_send_contact' в locales.py (см. ниже) или используем готовый
     await message.answer(
         f"{get_text(lang, 'enter_phone')}\n\n"
-        f"<i>Или нажмите 📱 Отправить контакт</i>",
+        f"<i>{get_text(lang, 'or_send_contact_hint')}</i>",
         parse_mode=ParseMode.HTML
     )
     
@@ -135,8 +141,12 @@ async def process_name(message: types.Message, state: FSMContext):
     
     # Показываем клавиатуру ввода телефона
     current = session_manager.get_value(user_id, 'phone_temp', "+7")
+    
+    # Формируем текст "Текущий номер" через локализацию
+    current_number_text = get_text(lang, 'current_number_label')
+    
     await message.answer(
-        f"📱 <b>Текущий номер:</b> <code>{html.escape(current)}</code>",  # ← Экранирование + <code>
+        f"{current_number_text} <code>{html.escape(current)}</code>",
         reply_markup=numeric_phone_inline_keyboard(lang, current),
         parse_mode=ParseMode.HTML
     )

@@ -1,11 +1,11 @@
-from aiogram import Router, types, F
-from aiogram.fsm.context import FSMContext
 import logging
-
-from locales import get_text
-from keyboards.main_menu import main_reply_keyboard
-from db import get_user_appointments
 from datetime import datetime
+
+from aiogram import F, Router, types
+from aiogram.fsm.context import FSMContext
+from db import get_user_appointments
+from keyboards.main_menu import main_reply_keyboard
+from locales import get_text
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,7 @@ router = Router()
 
 # Глобальная переменная для инициализации
 from storage.session_manager import UserSessionManager
+
 session_manager: UserSessionManager = None
 
 

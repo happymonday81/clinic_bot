@@ -3,12 +3,10 @@ from datetime import datetime
 from pathlib import Path
 
 from aiogram import Router, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
-from openpyxl import Workbook
-
-from db import get_all_appointments
-from locales import get_text
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from config import ADMIN_IDS
+from db import get_all_appointments
+from openpyxl import Workbook
 
 router = Router()
 
@@ -54,4 +52,4 @@ async def export_excel(callback: types.CallbackQuery):
         caption=f"📊 Выгрузка от {now.strftime('%d.%m.%Y %H:%M')}"
     )
     
-    await callback.answer(f"✅ Файл сохранён в Загрузки")
+    await callback.answer("✅ Файл сохранён в Загрузки")

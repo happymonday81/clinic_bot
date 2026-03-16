@@ -1,10 +1,8 @@
-from typing import Optional
-from datetime import datetime
 import logging
 
+from db import is_time_slot_available, save_appointment
 from models.appointment import AppointmentStatus
 from models.dto import AppointmentCreateDTO, AppointmentResult
-from db import save_appointment, is_time_slot_available
 from storage.session_manager import UserSessionManager
 
 logger = logging.getLogger(__name__)

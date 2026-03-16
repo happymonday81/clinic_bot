@@ -1,14 +1,24 @@
-import sqlite3
 import logging
-from datetime import datetime
+import sqlite3
 from contextlib import contextmanager
-from typing import Optional, List, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 from models.appointment import AppointmentStatus
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "clinic.db"
+# Определяем базовую директорию (папка Bot)
+# __file__ -> .../Bot/db.py
+# .parent -> .../Bot/
+# .parent -> .../CLINIC_BOT/ (корень проекта)
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "clinic.db"
+
+logger.info(f"️ Database path resolved to: {DB_PATH}")
+if not DB_PATH.exists():
+    logger.warning("⚠️ Database file does not exist yet. It will be created on init.")
 
 
 @contextmanager
@@ -16,6 +26,9 @@ def get_db_connection():
     """Контекстный менеджер для безопасной работы с БД"""
     conn = None
     try:
+        # Проверка: если путь ведет в несуществующую папку, создадим её (на всякий случай)
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
         conn = sqlite3.connect(DB_PATH, timeout=30)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -71,6 +84,15 @@ def init_db():
         if 'notes' not in columns:
             cursor.execute("ALTER TABLE appointments ADD COLUMN notes TEXT")
             logger.info("✅ Added 'notes' column")
+
+        # Колонки для напоминаний
+        if 'reminder_24h_sent' not in columns:
+            cursor.execute("ALTER TABLE appointments ADD COLUMN reminder_24h_sent BOOLEAN DEFAULT 0")
+            logger.info("✅ Added 'reminder_24h_sent' column")
+        
+        if 'reminder_3h_sent' not in columns:
+            cursor.execute("ALTER TABLE appointments ADD COLUMN reminder_3h_sent BOOLEAN DEFAULT 0")
+            logger.info("✅ Added 'reminder_3h_sent' column")
         
         conn.commit()
         logger.info("✅ Database initialized successfully")
@@ -81,9 +103,7 @@ init_db()
 
 
 def is_time_slot_available(doctor: str, date: str, time: str) -> bool:
-    """
-    Проверяет, свободно ли время у врача
-    """
+    """Проверяет, свободно ли время у врача"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -115,22 +135,16 @@ def save_appointment(
     doctor: str,
     date: str,
     time: str,
-    status: str = AppointmentStatus.CONFIRMED.value,  # ✅ Теперь это строка 'confirmed'
+    status: str = AppointmentStatus.CONFIRMED.value,
     notes: str = "",
     max_retries: int = 5
 ) -> Optional[int]:
-    """
-    Сохраняет запись в БД с повторными попытками
-    
-    Returns:
-        ID записи или None если ошибка
-    """
-    # ✅ Логгируем тип status для отладки
+    """Сохраняет запись в БД с повторными попытками"""
     logger.debug(f"Saving appointment: status={status!r}, type={type(status)}")
     
     if hasattr(status, 'value'):
-        status = status.value  # Конвертируем Enum в строку
-    status = str(status)  # Гарантируем строку
+        status = status.value
+    status = str(status)
     logger.debug(f"Saving appointment: status={status!r}, type={type(status)}")
     
     for attempt in range(max_retries):
