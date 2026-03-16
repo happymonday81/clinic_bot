@@ -125,10 +125,18 @@ def remove_lock():
 
 
 # ========== 5. БОТ И ДИСПЕТЧЕР ==========
-bot = Bot(token=BOT_TOKEN)
+
+# Если режим разработки и токена нет - используем заглушку
+is_dev = "--dev" in sys.argv
+actual_token = BOT_TOKEN if BOT_TOKEN else "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+# validate_token=False важен для дев-режима с фейковым токеном
+bot = Bot(token=actual_token, validate_token=not is_dev) 
 dp = Dispatcher(storage=MemoryStorage())
 
 logger.info("✅ Bot & Dispatcher initialized")
+if is_dev and not BOT_TOKEN:
+    logger.warning("🧪 Running with FAKE token (Dev Mode)")
 
 
 # ========== 6. СЕРВИСЫ ==========

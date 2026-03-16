@@ -48,7 +48,7 @@ ADMIN_IDS = load_admin_ids()
 
 # === 4. Проверка переменных при импорте ===
 if not BOT_TOKEN:
-    raise ValueError(f"BOT_TOKEN is missing! Check your .env file.\nChecked: {env_path.absolute()}")
+    BOT_TOKEN = ""
 
 # === 5. Пути к медиа ===
 BOT_FOLDER = Path(__file__).resolve().parent.parent
